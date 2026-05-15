@@ -1,0 +1,56 @@
+import numpy as np
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_absolute_error
+from sklearn.multioutput import MultiOutputRegressor
+from xgboost import XGBRegressor
+
+
+def train_xgboost(X, y, params_override=None):
+    """Train XGBoost multi-output regressor.
+
+    Args:
+        X: feature DataFrame/array
+        y: target array of shape (n_samples, 5)
+        params_override: optional dict overriding defaults
+
+    Returns:
+        Fitted MultiOutputRegressor
+    """
+    defaults = {
+        "n_estimators": 200,
+        "max_depth": 6,
+        "learning_rate": 0.1,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "random_state": 42,
+        "n_jobs": -1,
+    }
+    if params_override:
+        defaults.update(params_override)
+
+    model = MultiOutputRegressor(XGBRegressor(**defaults))
+    model.fit(X, y)
+    return model
+
+
+def cv_evaluate(X, y, n_splits=5):
+    """K-fold CV returning per-fold MAE and mean/std.
+
+    Returns:
+        (per_fold_scores, mean, std)
+    """
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    scores = []
+
+    for train_idx, val_idx in kf.split(X):
+        X_tr = X.iloc[train_idx] if hasattr(X, "iloc") else X[train_idx]
+        X_val = X.iloc[val_idx] if hasattr(X, "iloc") else X[val_idx]
+        y_tr = y[train_idx]
+        y_val = y[val_idx]
+
+        fold_model = train_xgboost(X_tr, y_tr)
+        preds = fold_model.predict(X_val)
+        mae = mean_absolute_error(y_val, preds)
+        scores.append(mae)
+
+    return scores, np.mean(scores), np.std(scores)
