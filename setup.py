@@ -1,20 +1,16 @@
 from setuptools import setup, find_packages
-from setuptools import Command
+from setuptools.command.install import install
 import subprocess, sys, os
 
 
-class DataCommand(Command):
-    """Download Kaggle competition data using kagglehub."""
-    description = "download Kaggle competition data (requires ~/.kaggle/kaggle.json)"
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
+class InstallWithData(install):
+    """Install package + dependencies, then download Kaggle data."""
 
     def run(self):
+        install.run(self)
+        self._download_data()
+
+    def _download_data(self):
         try:
             import kagglehub
         except ImportError:
@@ -23,22 +19,19 @@ class DataCommand(Command):
 
         os.makedirs("data", exist_ok=True)
 
-        # Check if data already exists
         if os.path.exists("data/train.csv") and os.path.exists("data/test.csv"):
             print("[*] Data already exists in data/. Skipping download.")
             return
 
-        print("[*] Attempting Kaggle download...")
-        print("[*] Kaggle invite link: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
-        print("[!] Requires: ~/.kaggle/kaggle.json (Kaggle API key)")
-        print("[!] You must first accept the competition invitation (NYCU email login).")
+        print("[*] Downloading Kaggle competition data...")
+        print("[*] Invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
+        print("[!] Requires ~/.kaggle/kaggle.json (Kaggle API key)")
 
         for handle in [
             "dm-2026-final-project",
             "natural-disaster-severity-prediction",
         ]:
             try:
-                print(f"    Trying: {handle}")
                 kagglehub.competition_download(handle, path="data")
                 print(f"[*] Downloaded: {handle}")
                 return
@@ -47,8 +40,7 @@ class DataCommand(Command):
 
         print("[!] Automatic download failed.")
         print("    1. Accept invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
-        print("    2. Download train.csv, test.csv, sample_submission.csv")
-        print("    3. Place all files in data/")
+        print("    2. Download train.csv, test.csv, sample_submission.csv to data/")
 
 
 setup(
@@ -64,6 +56,6 @@ setup(
         "seaborn",
     ],
     cmdclass={
-        "data": DataCommand,
+        "install": InstallWithData,
     },
 )
