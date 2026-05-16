@@ -44,8 +44,11 @@ class InstallWithData(install):
         print("[*] Downloading Kaggle competition data...")
         print("[*] Invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
 
-        # Run download in subprocess to avoid kagglehub import version conflicts
+        # Run download in subprocess after fixing kagglehub dependencies
         download_script = (
+            "import subprocess, sys; "
+            "subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', 'kagglehub', 'kagglesdk'], capture_output=True); "
+            "subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'kagglehub', '-q']); "
             "import kagglehub; "
             'kagglehub.competition_download("data-mining-2026-final-project", path="data"); '
             'print("Done")'
