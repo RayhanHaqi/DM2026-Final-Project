@@ -51,14 +51,14 @@ def _aggregate_array(window_array, feat_cols):
 
 def load_train_data(path, max_windows_per_region=52):
     """Load train.csv. For each region, take the most recent N weekly windows
-    (91 days of features → 5 weekly scores).
+    (91 days of features -> 5 weekly scores).
 
     Args:
         path: path to train.csv
         max_windows_per_region: max windows to extract per region
 
     Returns:
-        X, y, region_ids
+        X, y, region_ids (list of region_id strings per sample, for grouped CV)
     """
     df = pd.read_csv(path)
     meta_cols = ["region_id", "date", "score"]

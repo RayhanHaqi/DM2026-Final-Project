@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.model_selection import KFold
+from sklearn.model_selection import GroupKFold
 from sklearn.metrics import mean_absolute_error
 from sklearn.multioutput import MultiOutputRegressor
 from xgboost import XGBRegressor
@@ -33,16 +33,16 @@ def train_xgboost(X, y, params_override=None):
     return model
 
 
-def cv_evaluate(X, y, n_splits=5):
-    """K-fold CV returning per-fold MAE and mean/std.
+def cv_evaluate(X, y, groups, n_splits=5):
+    """GroupKFold CV by region — avoids data leakage between windows of same region.
 
     Returns:
         (per_fold_scores, mean, std)
     """
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    kf = GroupKFold(n_splits=n_splits)
     scores = []
 
-    for train_idx, val_idx in kf.split(X):
+    for train_idx, val_idx in kf.split(X, y, groups):
         X_tr = X.iloc[train_idx] if hasattr(X, "iloc") else X[train_idx]
         X_val = X.iloc[val_idx] if hasattr(X, "iloc") else X[val_idx]
         y_tr = y[train_idx]
