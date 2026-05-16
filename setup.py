@@ -44,41 +44,25 @@ class InstallWithData(install):
         print("[*] Downloading Kaggle competition data...")
         print("[*] Invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
 
-        # Ensure kagglehub works (fix version conflicts)
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "kagglehub", "kagglesdk", "-q"]
+        # Run download in subprocess to avoid kagglehub import version conflicts
+        download_script = (
+            "import kagglehub; "
+            'kagglehub.competition_download("data-mining-2026-final-project", path="data"); '
+            'print("Done")'
         )
-        import kagglehub
-
-        # Try kagglehub first
-        for handle in [
-            "data-mining-2026-final-project",
-        ]:
-            try:
-                kagglehub.competition_download(handle, path="data")
-                print(f"[*] Downloaded via kagglehub: {handle}")
-                return
-            except Exception as e:
-                print(f"    kagglehub '{handle}': {e}")
-
-        # Try Kaggle CLI
-        print("[*] Trying Kaggle CLI...")
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "kaggle"],
-                capture_output=True, check=False
-            )
-            result = subprocess.run(
-                ["kaggle", "competitions", "list"],
-                capture_output=True, text=True
-            )
-            print(f"    kaggle list:\n{result.stdout.strip()}")
-        except Exception as e:
-            print(f"    kaggle CLI error: {e}")
+        result = subprocess.run(
+            [sys.executable, "-c", download_script],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and "Done" in result.stdout:
+            print("[*] Downloaded successfully.")
+            return
+        if result.stderr:
+            print(f"    kagglehub error: {result.stderr.strip()[:300]}")
 
         print("[!] Automatic download failed.")
-        print("    1. Accept invite in browser: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
-        print("    2. Download train.csv, test.csv, sample_submission.csv to data/")
+        print("    1. Accept invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
+        print("    2. Download train.csv, test.csv, sample_submission.csv manually to data/")
 
 
 setup(
