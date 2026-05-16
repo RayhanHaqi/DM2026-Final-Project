@@ -33,12 +33,6 @@ class InstallWithData(install):
         self._download_data()
 
     def _download_data(self):
-        try:
-            import kagglehub
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "kagglehub"])
-            import kagglehub
-
         os.makedirs("data", exist_ok=True)
 
         if os.path.exists("data/train.csv") and os.path.exists("data/test.csv"):
@@ -49,6 +43,12 @@ class InstallWithData(install):
 
         print("[*] Downloading Kaggle competition data...")
         print("[*] Invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
+
+        # Ensure kagglehub works (fix version conflicts)
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "kagglehub", "kagglesdk", "-q"]
+        )
+        import kagglehub
 
         # Try kagglehub first
         for handle in [
