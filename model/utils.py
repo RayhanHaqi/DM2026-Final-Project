@@ -3,37 +3,31 @@ import pandas as pd
 import os
 
 
-def _aggregate_array(window_array, feat_cols):
-    """Feature aggregation over a numpy array window (91, n_feats)."""
-    rows = []
-    for j in range(window_array.shape[1]):
-        series = window_array[:, j]
-        name = feat_cols[j]
-        mu = series.mean()
-        sigma = series.std()
-        rows.append({
-            f"{name}__mean": mu,
-            f"{name}__std": sigma,
-            f"{name}__min": series.min(),
-            f"{name}__max": series.max(),
-            f"{name}__q25": np.quantile(series, 0.25),
-            f"{name}__q50": np.quantile(series, 0.50),
-            f"{name}__q75": np.quantile(series, 0.75),
-            f"{name}__last7_mean": series[-7:].mean(),
-            f"{name}__last30_mean": series[-30:].mean(),
-            f"{name}__trend": np.polyfit(np.arange(len(series)), series, 1)[0],
-            f"{name}__skew": np.mean((series - mu) ** 3) / (sigma ** 3 + 1e-10),
-            f"{name}__kurt": np.mean((series - mu) ** 4) / (sigma ** 4 + 1e-10),
-        })
-    return pd.concat([pd.Series(r) for r in rows])
-
-
-def load_train_data(path, max_windows_per_region=52):
-    """Load train.csv and construct 91-day sliding window samples.
-
-    Returns:
-        X, y, region_ids
+def load_train_data(path, max_windows_per_region=None):
+    """Load train.csv and construct sliding window samples.
+    max_windows_per_region=None means use ALL available windows.
+    Uses .npy cache for features/labels after first run.
     """
+    cache_x = path.replace(".csv", "_X_v2.npy")
+    cache_y = path.replace(".csv", "_y_v2.npy")
+    cache_r = path.replace(".csv", "_regions_v2.npy")
+    cache_w = str(max_windows_per_region)
+
+    if os.path.exists(cache_x):
+        X = pd.DataFrame(np.load(cache_x, allow_pickle=True))
+        y = np.load(cache_y)
+        regions = list(np.load(cache_r, allow_pickle=True))
+        if len(X) > 0 and X.shape[1] > 0:
+            return X, y, regions
+
+    X, y, regions = _build_train_features(path, max_windows_per_region)
+    np.save(cache_x, X.values)
+    np.save(cache_y, y)
+    np.save(cache_r, np.array(regions, dtype=object))
+    return X, y, regions
+
+
+def _build_train_features(path, max_windows_per_region):
     df = pd.read_csv(path)
     meta_cols = ["region_id", "date", "score"]
     feat_cols = [c for c in df.columns if c not in meta_cols]
@@ -46,8 +40,9 @@ def load_train_data(path, max_windows_per_region=52):
         score_mask = pd.notna(score_vals[indices])
         score_positions = np.where(score_mask)[0]
 
-        start_idx = max(0, len(score_positions) - 5 - max_windows_per_region)
-        score_positions = score_positions[start_idx:]
+        if max_windows_per_region is not None:
+            start_idx = max(0, len(score_positions) - 5 - max_windows_per_region)
+            score_positions = score_positions[start_idx:]
 
         for start in range(0, len(score_positions) - 4):
             label_pos = score_positions[start:start + 5]
@@ -69,7 +64,7 @@ def load_train_data(path, max_windows_per_region=52):
     return X, y, region_list
 
 
-def load_test_data(path):
+def _build_test_features(path):
     df = pd.read_csv(path)
     meta_cols = ["region_id", "date"]
     if "score" in df.columns:
@@ -77,7 +72,6 @@ def load_test_data(path):
     feat_cols = [c for c in df.columns if c not in meta_cols]
 
     X_list, region_list = [], []
-
     for region_id, grp in df.groupby("region_id", sort=False):
         window = grp[feat_cols].fillna(0).values[-91:]
         feats = _aggregate_array(window, feat_cols)
@@ -86,6 +80,20 @@ def load_test_data(path):
 
     X = pd.DataFrame(X_list).reset_index(drop=True)
     return X, region_list
+
+
+def load_test_data(path):
+    cache_x = path.replace(".csv", "_X_test_v2.npy")
+    cache_r = path.replace(".csv", "_regions_test_v2.npy")
+    if os.path.exists(cache_x):
+        X = pd.DataFrame(np.load(cache_x, allow_pickle=True))
+        regions = list(np.load(cache_r, allow_pickle=True))
+        if len(X) > 0:
+            return X, regions
+    X, regions = _build_test_features(path)
+    np.save(cache_x, X.values)
+    np.save(cache_r, np.array(regions, dtype=object))
+    return X, regions
 
 
 def generate_submission(region_ids, preds, output_path):
