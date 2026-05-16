@@ -50,19 +50,35 @@ class InstallWithData(install):
         print("[*] Downloading Kaggle competition data...")
         print("[*] Invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
 
+        # Try kagglehub first
         for handle in [
             "dm-2026-final-project",
             "natural-disaster-severity-prediction",
         ]:
             try:
                 kagglehub.competition_download(handle, path="data")
-                print(f"[*] Downloaded: {handle}")
+                print(f"[*] Downloaded via kagglehub: {handle}")
                 return
-            except Exception:
-                continue
+            except Exception as e:
+                print(f"    kagglehub '{handle}': {e}")
+
+        # Try Kaggle CLI
+        print("[*] Trying Kaggle CLI...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "kaggle"],
+                capture_output=True, check=False
+            )
+            result = subprocess.run(
+                ["kaggle", "competitions", "list"],
+                capture_output=True, text=True
+            )
+            print(f"    kaggle list:\n{result.stdout.strip()}")
+        except Exception as e:
+            print(f"    kaggle CLI error: {e}")
 
         print("[!] Automatic download failed.")
-        print("    1. Accept invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
+        print("    1. Accept invite in browser: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
         print("    2. Download train.csv, test.csv, sample_submission.csv to data/")
 
 
