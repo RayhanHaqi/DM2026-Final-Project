@@ -1,6 +1,28 @@
 from setuptools import setup, find_packages
 from setuptools.command.install import install
-import subprocess, sys, os
+import subprocess, sys, os, json
+
+
+def _setup_kaggle_auth():
+    """Ensure ~/.kaggle/kaggle.json exists, converting access_token if needed."""
+    kaggle_dir = os.path.expanduser("~/.kaggle")
+    kaggle_json = os.path.join(kaggle_dir, "kaggle.json")
+    access_token = os.path.join(kaggle_dir, "access_token")
+
+    if os.path.exists(kaggle_json):
+        return True
+
+    if os.path.exists(access_token):
+        with open(access_token) as f:
+            token = f.read().strip()
+        os.makedirs(kaggle_dir, exist_ok=True)
+        with open(kaggle_json, "w") as f:
+            json.dump({"username": "token", "key": token}, f)
+        os.chmod(kaggle_json, 0o600)
+        print("[*] Converted ~/.kaggle/access_token -> ~/.kaggle/kaggle.json")
+        return True
+
+    return False
 
 
 class InstallWithData(install):
@@ -23,9 +45,10 @@ class InstallWithData(install):
             print("[*] Data already exists in data/. Skipping download.")
             return
 
+        _setup_kaggle_auth()
+
         print("[*] Downloading Kaggle competition data...")
         print("[*] Invite: https://www.kaggle.com/t/7177902eb8b34b25a75e932d4e235b32")
-        print("[!] Requires ~/.kaggle/kaggle.json (Kaggle API key)")
 
         for handle in [
             "dm-2026-final-project",
