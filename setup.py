@@ -52,8 +52,7 @@ class InstallWithData(install):
 
         # Try kagglehub first
         for handle in [
-            "dm-2026-final-project",
-            "natural-disaster-severity-prediction",
+            "data-mining-2026-final-project",
         ]:
             try:
                 kagglehub.competition_download(handle, path="data")
