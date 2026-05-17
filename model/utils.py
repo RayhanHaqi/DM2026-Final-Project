@@ -3,6 +3,30 @@ import pandas as pd
 import os
 
 
+def _aggregate_array(window_array, feat_cols):
+    rows = []
+    for j in range(window_array.shape[1]):
+        series = window_array[:, j]
+        name = feat_cols[j]
+        mu = series.mean()
+        sigma = series.std()
+        rows.append({
+            f"{name}__mean": mu,
+            f"{name}__std": sigma,
+            f"{name}__min": series.min(),
+            f"{name}__max": series.max(),
+            f"{name}__q25": np.quantile(series, 0.25),
+            f"{name}__q50": np.quantile(series, 0.50),
+            f"{name}__q75": np.quantile(series, 0.75),
+            f"{name}__last7_mean": series[-7:].mean(),
+            f"{name}__last30_mean": series[-30:].mean(),
+            f"{name}__trend": np.polyfit(np.arange(len(series)), series, 1)[0],
+            f"{name}__skew": np.mean((series - mu) ** 3) / (sigma ** 3 + 1e-10),
+            f"{name}__kurt": np.mean((series - mu) ** 4) / (sigma ** 4 + 1e-10),
+        })
+    return pd.concat([pd.Series(r) for r in rows])
+
+
 def load_train_data(path, max_windows_per_region=None):
     """Load train.csv and construct sliding window samples.
     max_windows_per_region=None means use ALL available windows.
