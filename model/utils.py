@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import os
+from datetime import datetime
+from tqdm.auto import tqdm
 
 
 def _aggregate_array(window_array, feat_cols):
@@ -59,7 +61,8 @@ def _build_train_features(path, max_windows_per_region):
 
     X_list, y_list, region_list = [], [], []
 
-    for region_id, grp in df.groupby("region_id", sort=False):
+    grouped = df.groupby("region_id", sort=False)
+    for region_id, grp in tqdm(grouped, total=grouped.ngroups, desc="Building train windows"):
         indices = grp.index.values
         score_mask = pd.notna(score_vals[indices])
         score_positions = np.where(score_mask)[0]
@@ -120,15 +123,12 @@ def load_test_data(path):
     return X, regions
 
 
-def generate_submission(region_ids, preds, output_path):
+def generate_submission(region_ids, preds, output_path, timestamp=None):
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
-    # Version tracking
+    timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
     base, ext = os.path.splitext(output_path)
-    version = 1
-    while os.path.exists(f"{base}_v{version}{ext}"):
-        version += 1
-    versioned_path = f"{base}_v{version}{ext}"
+    versioned_path = f"{base}_{timestamp}{ext}"
 
     sample_path = os.path.join(os.path.dirname(output_path), "..", "data", "sample_submission.csv")
     sample_path = os.path.normpath(sample_path)
@@ -137,11 +137,12 @@ def generate_submission(region_ids, preds, output_path):
         template = pd.read_csv(sample_path)
         id_col = template.columns[0]
         target_cols = list(template.columns[1:])
+        pred_by_region = {rid: preds[i] for i, rid in enumerate(region_ids)}
         rows = []
-        for i, rid in enumerate(region_ids):
+        for rid in template[id_col]:
             row = {id_col: rid}
             for j, col_name in enumerate(target_cols):
-                row[col_name] = preds[i, min(j, preds.shape[1] - 1)]
+                row[col_name] = pred_by_region[rid][min(j, preds.shape[1] - 1)]
             rows.append(row)
         sub = pd.DataFrame(rows)
     else:
@@ -158,7 +159,6 @@ def generate_submission(region_ids, preds, output_path):
 
     # Auto-track
     tracker_path = os.path.join(os.path.dirname(output_path) or ".", "SUBMISSIONS.md")
-    from datetime import datetime
     date_str = datetime.now().strftime("%b %d")
     entry = f"| {os.path.basename(versioned_path)} | {date_str} | ? | ? | ? | ? | auto-generated |\n"
     if not os.path.exists(tracker_path):
