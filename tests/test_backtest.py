@@ -1,0 +1,68 @@
+import unittest
+
+import numpy as np
+import pandas as pd
+
+
+def make_backtest_frame(n_regions=2, n_days=98, n_labels=7):
+    rows = []
+    for region_idx in range(n_regions):
+        region_id = f"R{region_idx + 1}"
+        for day in range(n_days):
+            score = float(day) if day >= n_days - n_labels else np.nan
+            rows.append({
+                "region_id": region_id,
+                "date": f"2026-01-{(day % 28) + 1:02d}",
+                "score": score,
+                "rain": float(day + region_idx),
+                "temp": float(day * 2 + region_idx),
+            })
+    return pd.DataFrame(rows)
+
+
+class BacktestSplitTests(unittest.TestCase):
+    def test_build_window_samples_extracts_targets_and_score_index(self):
+        from model import backtest
+
+        df = make_backtest_frame(n_regions=1, n_days=98, n_labels=7)
+        samples, feat_cols = backtest.build_window_samples_from_frame(df, window_days=91)
+
+        self.assertEqual(feat_cols, ["rain", "temp"])
+        self.assertEqual(len(samples), 3)
+        self.assertEqual(samples[0]["score_idx_start"], 0)
+        np.testing.assert_allclose(samples[0]["target"], [91.0, 92.0, 93.0, 94.0, 95.0])
+        np.testing.assert_allclose(samples[-1]["target"], [93.0, 94.0, 95.0, 96.0, 97.0])
+        self.assertEqual(samples[0]["window"].shape, (91, 2))
+
+    def test_build_recent_backtest_splits_uses_terminal_horizons(self):
+        from model import backtest
+
+        df = make_backtest_frame(n_regions=2, n_days=98, n_labels=7)
+        samples, _ = backtest.build_window_samples_from_frame(df, window_days=91)
+        splits = backtest.build_recent_backtest_splits(samples, n_recent_cutoffs=2)
+
+        self.assertEqual(len(splits), 2)
+        self.assertEqual({sample["score_idx_start"] for sample in splits[0]["val_samples"]}, {2})
+        self.assertEqual({sample["score_idx_start"] for sample in splits[1]["val_samples"]}, {1})
+        self.assertEqual({sample["score_idx_start"] for sample in splits[0]["train_samples"]}, {0, 1})
+        self.assertEqual({sample["score_idx_start"] for sample in splits[1]["train_samples"]}, {0})
+
+    def test_build_recent_backtest_splits_respects_max_train_windows_per_region(self):
+        from model import backtest
+
+        df = make_backtest_frame(n_regions=2, n_days=99, n_labels=8)
+        samples, _ = backtest.build_window_samples_from_frame(df, window_days=91)
+        splits = backtest.build_recent_backtest_splits(
+            samples,
+            n_recent_cutoffs=2,
+            max_train_windows_per_region=1,
+        )
+
+        self.assertEqual(len(splits[0]["train_samples"]), 2)
+        self.assertEqual({sample["score_idx_start"] for sample in splits[0]["train_samples"]}, {2})
+        self.assertEqual(len(splits[1]["train_samples"]), 2)
+        self.assertEqual({sample["score_idx_start"] for sample in splits[1]["train_samples"]}, {1})
+
+
+if __name__ == "__main__":
+    unittest.main()
