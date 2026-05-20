@@ -60,7 +60,8 @@ sample = pd.read_csv('data/sample_submission.csv')
 best = pd.read_csv('output/daily_candidates/cnn_1d_20260518_180837.csv')
 
 assert list(best.columns) == list(sample.columns), 'columns differ from sample_submission.csv'
-assert best['ID'].tolist() == sample['ID'].tolist(), 'ID order differs from sample_submission.csv'
+id_col = sample.columns[0]
+assert best[id_col].tolist() == sample[id_col].tolist(), 'ID order differs from sample_submission.csv'
 assert best.iloc[:, 1:].notna().all().all(), 'current best contains NaN predictions'
 assert ((best.iloc[:, 1:] >= 0) & (best.iloc[:, 1:] <= 5)).all().all(), 'current best predictions outside [0, 5]'
 
@@ -175,7 +176,8 @@ assert len(candidate_paths) == 2, f'expected two May 20 small CNN candidates, fo
 for path in candidate_paths:
     df = pd.read_csv(path)
     assert list(df.columns) == list(sample.columns), f'{path}: columns differ from sample'
-    assert df['ID'].tolist() == sample['ID'].tolist(), f'{path}: ID order differs from sample'
+    id_col = sample.columns[0]
+    assert df[id_col].tolist() == sample[id_col].tolist(), f'{path}: ID order differs from sample'
     assert df.iloc[:, 1:].notna().all().all(), f'{path}: contains NaN predictions'
     assert ((df.iloc[:, 1:] >= 0) & (df.iloc[:, 1:] <= 5)).all().all(), f'{path}: predictions outside [0, 5]'
 
@@ -253,7 +255,8 @@ assert corr >= 0.90, f'safest candidate correlation too low for blending: {corr:
 assert diff <= 0.25, f'safest candidate mean difference too high for blending: {diff:.6f}'
 
 assert list(candidate.columns) == list(sample.columns), 'candidate columns differ from sample'
-assert candidate['ID'].tolist() == sample['ID'].tolist(), 'candidate ID order differs from sample'
+id_col = sample.columns[0]
+assert candidate[id_col].tolist() == sample[id_col].tolist(), 'candidate ID order differs from sample'
 
 blend = sample.copy()
 blend.iloc[:, 1:] = (0.70 * best.iloc[:, 1:].to_numpy(float)) + (0.30 * candidate.iloc[:, 1:].to_numpy(float))
@@ -290,7 +293,8 @@ blend_path = blend_paths[-1]
 blend = pd.read_csv(blend_path)
 
 assert list(blend.columns) == list(sample.columns), 'blend columns differ from sample'
-assert blend['ID'].tolist() == sample['ID'].tolist(), 'blend ID order differs from sample'
+id_col = sample.columns[0]
+assert blend[id_col].tolist() == sample[id_col].tolist(), 'blend ID order differs from sample'
 assert blend.iloc[:, 1:].notna().all().all(), 'blend contains NaN predictions'
 assert ((blend.iloc[:, 1:] >= 0) & (blend.iloc[:, 1:] <= 5)).all().all(), 'blend predictions outside [0, 5]'
 
@@ -338,7 +342,8 @@ ranked = []
 for path in candidate_paths:
     df = pd.read_csv(path)
     assert list(df.columns) == list(sample.columns), f'{path}: columns differ from sample'
-    assert df['ID'].tolist() == sample['ID'].tolist(), f'{path}: ID order differs from sample'
+    id_col = sample.columns[0]
+    assert df[id_col].tolist() == sample[id_col].tolist(), f'{path}: ID order differs from sample'
     values = df.iloc[:, 1:].to_numpy(float)
     corr = float(np.corrcoef(values.ravel(), best_values.ravel())[0, 1])
     diff = float(np.abs(values - best_values).mean())
