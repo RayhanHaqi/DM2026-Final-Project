@@ -35,6 +35,20 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("--weight-decay", result.stdout)
         self.assertIn("--scheduler", result.stdout)
 
+    def test_temporal_backtest_script_help_imports_local_model_package(self):
+        result = subprocess.run(
+            [sys.executable, "scripts/run_temporal_backtest.py", "--help"],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Run temporal backtest validation", result.stdout)
+        self.assertIn("--mode", result.stdout)
+        self.assertIn("--recent-cutoffs", result.stdout)
+        self.assertIn("--epochs", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
