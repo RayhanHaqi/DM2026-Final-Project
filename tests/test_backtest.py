@@ -93,5 +93,40 @@ class BacktestTreeTests(unittest.TestCase):
         self.assertEqual(summary["n_validation_rows"], 4)
 
 
+class BacktestCnnTests(unittest.TestCase):
+    def test_standardize_from_train_uses_train_statistics_only(self):
+        from model import backtest
+
+        X_train = np.array([[[1.0], [3.0]], [[5.0], [7.0]]], dtype=float)
+        X_val = np.array([[[101.0], [103.0]]], dtype=float)
+
+        X_tr_std, X_val_std, mean, std = backtest.standardize_from_train(X_train, X_val)
+
+        self.assertAlmostEqual(float(mean.reshape(-1)[0]), 4.0)
+        self.assertAlmostEqual(float(std.reshape(-1)[0]), np.std(X_train), places=6)
+        self.assertAlmostEqual(float(X_tr_std.mean()), 0.0, places=6)
+        self.assertGreater(float(X_val_std.mean()), 10.0)
+
+    def test_evaluate_cnn_backtest_returns_expected_summary_shapes(self):
+        from model import backtest
+
+        df = make_backtest_frame(n_regions=2, n_days=98, n_labels=7)
+
+        with patch.object(backtest, "_fit_predict_cnn_split", return_value=np.zeros((2, 5))):
+            summary = backtest.evaluate_cnn_backtest_from_frame(
+                df,
+                n_recent_cutoffs=2,
+                max_train_windows_per_region=2,
+                model_name="small",
+                epochs=2,
+                batch_size=8,
+            )
+
+        self.assertIn("overall_mae", summary)
+        self.assertEqual(len(summary["per_week_mae"]), 5)
+        self.assertEqual(len(summary["per_cutoff_mae"]), 2)
+        self.assertEqual(summary["n_validation_rows"], 4)
+
+
 if __name__ == "__main__":
     unittest.main()

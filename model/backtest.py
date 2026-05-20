@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error
 
-from model import train, utils
+from model import cnn_candidate, train, utils
 
 
 def build_window_samples_from_frame(df, window_days=91):
@@ -124,6 +124,119 @@ def evaluate_tree_backtest_from_frame(
 
         model = train.train_xgboost(X_tr, y_tr, params_override=params_override)
         preds = np.clip(model.predict(X_val), 0.0, 5.0)
+
+        for idx, sample in enumerate(split["val_samples"]):
+            split_rows.append({
+                "region_id": sample["region_id"],
+                "cutoff_offset": split["cutoff_offset"],
+                "y_true": y_val[idx],
+                "preds": preds[idx],
+            })
+
+    return summarize_predictions(split_rows)
+
+
+def standardize_from_train(X_train, X_val):
+    mean = X_train.mean(axis=(0, 1), keepdims=True)
+    std = X_train.std(axis=(0, 1), keepdims=True)
+    std = np.where(std == 0.0, 1.0, std)
+    return (X_train - mean) / std, (X_val - mean) / std, mean, std
+
+
+def _fit_predict_cnn_split(
+    X_train,
+    y_train,
+    X_val,
+    model_name="small",
+    epochs=10,
+    batch_size=256,
+    lr=1e-3,
+    seed=42,
+    dropout=0.15,
+    weight_decay=1e-3,
+    scheduler=False,
+):
+    backend = cnn_candidate.require_deep_learning_backend()
+    if backend != "torch":
+        raise RuntimeError("This CNN backtest currently supports PyTorch only.")
+
+    import torch
+
+    torch.manual_seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = cnn_candidate.build_torch_model(model_name, X_train.shape[2], dropout=dropout).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2) if scheduler else None
+    loss_fn = torch.nn.L1Loss()
+
+    X_tr = torch.tensor(X_train, dtype=torch.float32)
+    y_tr = torch.tensor(y_train, dtype=torch.float32)
+    X_va = torch.tensor(X_val, dtype=torch.float32).to(device)
+
+    for _ in range(epochs):
+        model.train()
+        order = torch.randperm(len(X_tr))
+        epoch_losses = []
+        for start in range(0, len(order), batch_size):
+            batch_idx = order[start:start + batch_size]
+            xb = X_tr[batch_idx].to(device)
+            yb = y_tr[batch_idx].to(device)
+            optimizer.zero_grad()
+            loss = loss_fn(model(xb), yb)
+            loss.backward()
+            optimizer.step()
+            epoch_losses.append(float(loss.detach().cpu().item()))
+
+        if lr_scheduler is not None:
+            lr_scheduler.step(float(np.mean(epoch_losses)))
+
+    model.eval()
+    with torch.no_grad():
+        preds = model(X_va).cpu().numpy()
+    return np.clip(preds, 0.0, 5.0)
+
+
+def evaluate_cnn_backtest_from_frame(
+    df,
+    n_recent_cutoffs=3,
+    max_train_windows_per_region=52,
+    model_name="small",
+    epochs=10,
+    batch_size=256,
+    lr=1e-3,
+    seed=42,
+    dropout=0.15,
+    weight_decay=1e-3,
+    scheduler=False,
+):
+    samples, _ = build_window_samples_from_frame(df)
+    splits = build_recent_backtest_splits(
+        samples,
+        n_recent_cutoffs=n_recent_cutoffs,
+        max_train_windows_per_region=max_train_windows_per_region,
+    )
+    split_rows = []
+
+    for split in splits:
+        X_tr = np.stack([sample["window"] for sample in split["train_samples"]]).astype("float32")
+        y_tr = np.stack([sample["target"] for sample in split["train_samples"]]).astype("float32")
+        X_val = np.stack([sample["window"] for sample in split["val_samples"]]).astype("float32")
+        y_val = np.stack([sample["target"] for sample in split["val_samples"]]).astype("float32")
+
+        X_tr_std, X_val_std, _, _ = standardize_from_train(X_tr, X_val)
+        preds = _fit_predict_cnn_split(
+            X_tr_std,
+            y_tr,
+            X_val_std,
+            model_name=model_name,
+            epochs=epochs,
+            batch_size=batch_size,
+            lr=lr,
+            seed=seed,
+            dropout=dropout,
+            weight_decay=weight_decay,
+            scheduler=scheduler,
+        )
 
         for idx, sample in enumerate(split["val_samples"]):
             split_rows.append({
