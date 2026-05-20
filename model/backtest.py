@@ -2,6 +2,9 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import mean_absolute_error
+
+from model import train, utils
 
 
 def build_window_samples_from_frame(df, window_days=91):
@@ -65,3 +68,69 @@ def build_recent_backtest_splits(samples, n_recent_cutoffs=3, max_train_windows_
         })
 
     return splits
+
+
+def summarize_predictions(split_rows):
+    y_true = np.vstack([row["y_true"] for row in split_rows])
+    preds = np.vstack([row["preds"] for row in split_rows])
+    cutoff_offsets = sorted({row["cutoff_offset"] for row in split_rows})
+
+    return {
+        "overall_mae": float(mean_absolute_error(y_true, preds)),
+        "per_week_mae": [
+            float(mean_absolute_error(y_true[:, idx], preds[:, idx]))
+            for idx in range(y_true.shape[1])
+        ],
+        "per_cutoff_mae": [
+            {
+                "cutoff_offset": cutoff_offset,
+                "mae": float(mean_absolute_error(
+                    np.vstack([row["y_true"] for row in split_rows if row["cutoff_offset"] == cutoff_offset]),
+                    np.vstack([row["preds"] for row in split_rows if row["cutoff_offset"] == cutoff_offset]),
+                )),
+            }
+            for cutoff_offset in cutoff_offsets
+        ],
+        "prediction_means": preds.mean(axis=0).tolist(),
+        "target_means": y_true.mean(axis=0).tolist(),
+        "n_validation_rows": int(len(split_rows)),
+    }
+
+
+def _aggregate_tree_matrix(samples, feat_cols):
+    rows = [utils._aggregate_array(sample["window"], feat_cols) for sample in samples]
+    return pd.DataFrame(rows)
+
+
+def evaluate_tree_backtest_from_frame(
+    df,
+    n_recent_cutoffs=3,
+    max_train_windows_per_region=52,
+    params_override=None,
+):
+    samples, feat_cols = build_window_samples_from_frame(df)
+    splits = build_recent_backtest_splits(
+        samples,
+        n_recent_cutoffs=n_recent_cutoffs,
+        max_train_windows_per_region=max_train_windows_per_region,
+    )
+    split_rows = []
+
+    for split in splits:
+        X_tr = _aggregate_tree_matrix(split["train_samples"], feat_cols)
+        y_tr = np.vstack([sample["target"] for sample in split["train_samples"]])
+        X_val = _aggregate_tree_matrix(split["val_samples"], feat_cols)
+        y_val = np.vstack([sample["target"] for sample in split["val_samples"]])
+
+        model = train.train_xgboost(X_tr, y_tr, params_override=params_override)
+        preds = np.clip(model.predict(X_val), 0.0, 5.0)
+
+        for idx, sample in enumerate(split["val_samples"]):
+            split_rows.append({
+                "region_id": sample["region_id"],
+                "cutoff_offset": split["cutoff_offset"],
+                "y_true": y_val[idx],
+                "preds": preds[idx],
+            })
+
+    return summarize_predictions(split_rows)

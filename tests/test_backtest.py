@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -62,6 +63,34 @@ class BacktestSplitTests(unittest.TestCase):
         self.assertEqual({sample["score_idx_start"] for sample in splits[0]["train_samples"]}, {2})
         self.assertEqual(len(splits[1]["train_samples"]), 2)
         self.assertEqual({sample["score_idx_start"] for sample in splits[1]["train_samples"]}, {1})
+
+
+class FakeTreeModel:
+    def __init__(self, prediction):
+        self.prediction = np.array(prediction, dtype=float)
+
+    def predict(self, X):
+        return np.repeat(self.prediction[None, :], len(X), axis=0)
+
+
+class BacktestTreeTests(unittest.TestCase):
+    def test_evaluate_tree_backtest_returns_expected_summary_shapes(self):
+        from model import backtest
+
+        df = make_backtest_frame(n_regions=2, n_days=98, n_labels=7)
+
+        with patch.object(backtest.train, "train_xgboost", return_value=FakeTreeModel([0, 0, 0, 0, 0])):
+            summary = backtest.evaluate_tree_backtest_from_frame(
+                df,
+                n_recent_cutoffs=2,
+                max_train_windows_per_region=2,
+                params_override={"n_estimators": 10},
+            )
+
+        self.assertIn("overall_mae", summary)
+        self.assertEqual(len(summary["per_week_mae"]), 5)
+        self.assertEqual(len(summary["per_cutoff_mae"]), 2)
+        self.assertEqual(summary["n_validation_rows"], 4)
 
 
 if __name__ == "__main__":
