@@ -81,6 +81,22 @@ class CnnCandidateTests(unittest.TestCase):
         self.assertEqual(regions, [1])
         self.assertEqual(X_test.shape, (1, 91, 3))
 
+    def test_cnn_gru_model_returns_five_week_predictions(self):
+        from model import cnn_candidate
+
+        if cnn_candidate.require_deep_learning_backend() != "torch":
+            self.skipTest("PyTorch is required for CNN-GRU")
+
+        import torch
+
+        model = cnn_candidate.build_torch_model("cnn_gru", n_features=4, dropout=0.15)
+        x = torch.zeros((3, 91, 4), dtype=torch.float32)
+
+        with torch.no_grad():
+            out = model(x)
+
+        self.assertEqual(tuple(out.shape), (3, 5))
+
 
 if __name__ == "__main__":
     unittest.main()

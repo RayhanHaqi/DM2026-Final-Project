@@ -119,11 +119,31 @@ def build_torch_model(model_name, n_features, dropout=0.15):
         def forward(self, x):
             return self.net(x.transpose(1, 2))
 
+    class CnnGru(torch.nn.Module):
+        def __init__(self, n_features):
+            super().__init__()
+            self.conv = torch.nn.Sequential(
+                torch.nn.Conv1d(n_features, 32, kernel_size=5, padding=2),
+                torch.nn.ReLU(),
+                torch.nn.Conv1d(32, 64, kernel_size=5, padding=2),
+                torch.nn.ReLU(),
+            )
+            self.gru = torch.nn.GRU(input_size=64, hidden_size=64, num_layers=1, batch_first=True)
+            self.dropout = torch.nn.Dropout(dropout)
+            self.head = torch.nn.Linear(64, 5)
+
+        def forward(self, x):
+            features = self.conv(x.transpose(1, 2)).transpose(1, 2)
+            _, hidden = self.gru(features)
+            return self.head(self.dropout(hidden[-1]))
+
     if model_name == "small":
         return SmallCnn(n_features)
     if model_name == "v2":
         return V2Cnn(n_features)
-    raise ValueError("model_name must be 'small' or 'v2'")
+    if model_name == "cnn_gru":
+        return CnnGru(n_features)
+    raise ValueError("model_name must be 'small', 'v2', or 'cnn_gru'")
 
 
 def train_torch_cnn(
