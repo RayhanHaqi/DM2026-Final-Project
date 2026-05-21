@@ -4,6 +4,22 @@ import numpy as np
 import pandas as pd
 
 
+def add_calendar_features(df):
+    out = df.copy()
+    dates = pd.to_datetime(out["date"])
+    day_of_year = dates.dt.dayofyear.astype("float32")
+    month = dates.dt.month.astype("float32")
+    week = dates.dt.isocalendar().week.astype("float32")
+
+    out["calendar__doy_sin"] = np.sin(2.0 * np.pi * day_of_year / 366.0).astype("float32")
+    out["calendar__doy_cos"] = np.cos(2.0 * np.pi * day_of_year / 366.0).astype("float32")
+    out["calendar__month_sin"] = np.sin(2.0 * np.pi * month / 12.0).astype("float32")
+    out["calendar__month_cos"] = np.cos(2.0 * np.pi * month / 12.0).astype("float32")
+    out["calendar__week_sin"] = np.sin(2.0 * np.pi * week / 53.0).astype("float32")
+    out["calendar__week_cos"] = np.cos(2.0 * np.pi * week / 53.0).astype("float32")
+    return out
+
+
 def require_deep_learning_backend():
     if importlib.util.find_spec("torch") is not None:
         return "torch"
