@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument("--recent-cutoffs", type=int, default=3)
     parser.add_argument("--max-windows-per-region", type=int, default=52)
     parser.add_argument("--output-dir", default="output/backtests")
-    parser.add_argument("--model", choices=["small", "v2"], default="small")
+    parser.add_argument("--model", choices=["small", "v2", "cnn_gru"], default="small")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=0.15)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--scheduler", action="store_true")
+    parser.add_argument("--calendar", action="store_true")
     return parser.parse_args()
 
 
@@ -73,6 +74,7 @@ def main():
             dropout=args.dropout,
             weight_decay=args.weight_decay,
             scheduler=args.scheduler,
+            include_calendar=args.calendar,
         )
         rows.append(flatten_summary(f"cnn_{args.model}", cnn_summary))
         print("cnn overall_mae", round(cnn_summary["overall_mae"], 6))

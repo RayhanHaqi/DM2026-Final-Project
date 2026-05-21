@@ -7,7 +7,9 @@ from sklearn.metrics import mean_absolute_error
 from model import cnn_candidate, train, utils
 
 
-def build_window_samples_from_frame(df, window_days=91):
+def build_window_samples_from_frame(df, window_days=91, include_calendar=False):
+    if include_calendar:
+        df = cnn_candidate.add_calendar_features(df)
     meta_cols = ["region_id", "date", "score"]
     feat_cols = [col for col in df.columns if col not in meta_cols]
     score_vals = df["score"].to_numpy()
@@ -208,8 +210,9 @@ def evaluate_cnn_backtest_from_frame(
     dropout=0.15,
     weight_decay=1e-3,
     scheduler=False,
+    include_calendar=False,
 ):
-    samples, _ = build_window_samples_from_frame(df)
+    samples, _ = build_window_samples_from_frame(df, include_calendar=include_calendar)
     splits = build_recent_backtest_splits(
         samples,
         n_recent_cutoffs=n_recent_cutoffs,

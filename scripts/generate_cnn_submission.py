@@ -21,12 +21,13 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--model", choices=["small", "v2"], default="small")
+    parser.add_argument("--model", choices=["small", "v2", "cnn_gru"], default="small")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--dropout", type=float, default=0.15)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--scheduler", action="store_true")
+    parser.add_argument("--calendar", action="store_true")
     parser.add_argument("--no-backtest", action="store_true")
     parser.add_argument("--backtest-cutoffs", type=int, default=2)
     return parser.parse_args()
@@ -54,6 +55,7 @@ def main():
             dropout=args.dropout,
             weight_decay=args.weight_decay,
             scheduler=args.scheduler,
+            include_calendar=args.calendar,
         )
         print("backtest_mae", round(backtest_summary["overall_mae"], 6))
 
@@ -61,7 +63,10 @@ def main():
     X_train, y_train, train_regions, feat_cols = cnn_candidate.build_sequence_train_data_from_frame(
         train_df,
         max_windows_per_region=args.max_windows_per_region,
+        include_calendar=args.calendar,
     )
+    if args.calendar:
+        test_df = cnn_candidate.add_calendar_features(test_df)
     X_test, test_regions = cnn_candidate.build_sequence_test_data_from_frame(test_df, feat_cols)
     X_train, X_test = cnn_candidate.standardize_sequences(X_train, X_test)
 
@@ -105,6 +110,7 @@ def main():
         "dropout": args.dropout,
         "weight_decay": args.weight_decay,
         "scheduler": args.scheduler,
+        "calendar": args.calendar,
         "path": out_path,
     }]).to_csv(summary_path, index=False)
 

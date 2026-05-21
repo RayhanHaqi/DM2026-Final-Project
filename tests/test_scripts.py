@@ -34,6 +34,8 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("--dropout", result.stdout)
         self.assertIn("--weight-decay", result.stdout)
         self.assertIn("--scheduler", result.stdout)
+        self.assertIn("--calendar", result.stdout)
+        self.assertIn("cnn_gru", result.stdout)
 
     def test_temporal_backtest_script_help_imports_local_model_package(self):
         result = subprocess.run(
@@ -48,6 +50,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("--mode", result.stdout)
         self.assertIn("--recent-cutoffs", result.stdout)
         self.assertIn("--epochs", result.stdout)
+        self.assertIn("--calendar", result.stdout)
 
 
 if __name__ == "__main__":

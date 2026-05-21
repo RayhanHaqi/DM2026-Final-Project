@@ -128,5 +128,31 @@ class BacktestCnnTests(unittest.TestCase):
         self.assertEqual(summary["n_validation_rows"], 4)
 
 
+    def test_evaluate_cnn_backtest_passes_calendar_flag_to_sample_builder(self):
+        from unittest.mock import patch
+
+        from model import backtest
+
+        df = make_backtest_frame(n_regions=2, n_days=98, n_labels=7)
+        calls = []
+        real_builder = backtest.build_window_samples_from_frame
+
+        def wrapped_builder(frame, window_days=91, include_calendar=False):
+            calls.append(include_calendar)
+            return real_builder(frame, window_days=window_days, include_calendar=include_calendar)
+
+        with patch.object(backtest, "build_window_samples_from_frame", side_effect=wrapped_builder):
+            with patch.object(backtest, "_fit_predict_cnn_split", return_value=np.zeros((2, 5))):
+                summary = backtest.evaluate_cnn_backtest_from_frame(
+                    df,
+                    n_recent_cutoffs=1,
+                    max_train_windows_per_region=2,
+                    include_calendar=True,
+                )
+
+        self.assertEqual(calls, [True])
+        self.assertEqual(summary["n_validation_rows"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
