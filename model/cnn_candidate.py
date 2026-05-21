@@ -28,7 +28,9 @@ def require_deep_learning_backend():
     raise RuntimeError("Small 1D CNN requires PyTorch or TensorFlow. Install one before generating a CNN submission.")
 
 
-def build_sequence_train_data_from_frame(df, max_windows_per_region=52):
+def build_sequence_train_data_from_frame(df, max_windows_per_region=52, include_calendar=False):
+    if include_calendar:
+        df = add_calendar_features(df)
     meta_cols = ["region_id", "date", "score"]
     feat_cols = [c for c in df.columns if c not in meta_cols]
     score_vals = df["score"].values
