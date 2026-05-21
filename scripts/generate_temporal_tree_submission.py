@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from model import experiments, temporal_features, temporal_tree
+from model import backtest, experiments, temporal_features, temporal_tree
 
 
 def parse_args():
@@ -22,6 +22,8 @@ def parse_args():
     parser.add_argument("--no-cv", action="store_true")
     parser.add_argument("--feature-set", choices=["hybrid", "blocks"], default="hybrid")
     parser.add_argument("--gpu", action="store_true", help="Use XGBoost GPU training with device=cuda.")
+    parser.add_argument("--no-backtest", action="store_true")
+    parser.add_argument("--backtest-cutoffs", type=int, default=2)
     return parser.parse_args()
 
 
@@ -49,6 +51,18 @@ def main():
         })
     if args.gpu:
         params.update({"tree_method": "hist", "device": "cuda"})
+
+    if not args.no_backtest:
+        train_df = pd.read_csv(args.train)
+        tree_backtest_params = {k: v for k, v in params.items() if k not in ("n_jobs", "tree_method", "device")}
+        tree_backtest_params["n_jobs"] = 2
+        backtest_summary = backtest.evaluate_tree_backtest_from_frame(
+            train_df,
+            n_recent_cutoffs=args.backtest_cutoffs,
+            max_train_windows_per_region=args.max_windows_per_region,
+            params_override=tree_backtest_params,
+        )
+        print("backtest_mae", round(backtest_summary["overall_mae"], 6))
 
     X_train, y_train, train_regions = temporal_features.load_temporal_train_data(
         args.train,

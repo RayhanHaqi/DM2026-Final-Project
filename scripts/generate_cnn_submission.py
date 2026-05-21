@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from model import cnn_candidate, experiments
+from model import backtest, cnn_candidate, experiments
 
 
 def parse_args():
@@ -27,6 +27,8 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=0.15)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--scheduler", action="store_true")
+    parser.add_argument("--no-backtest", action="store_true")
+    parser.add_argument("--backtest-cutoffs", type=int, default=2)
     return parser.parse_args()
 
 
@@ -38,6 +40,23 @@ def main():
         raise SystemExit("This runner currently supports PyTorch. Install torch before running it.")
 
     train_df = pd.read_csv(args.train)
+
+    if not args.no_backtest:
+        backtest_summary = backtest.evaluate_cnn_backtest_from_frame(
+            train_df,
+            n_recent_cutoffs=args.backtest_cutoffs,
+            max_train_windows_per_region=args.max_windows_per_region,
+            model_name=args.model,
+            epochs=min(args.epochs, 10),
+            batch_size=args.batch_size,
+            lr=args.lr,
+            seed=args.seed,
+            dropout=args.dropout,
+            weight_decay=args.weight_decay,
+            scheduler=args.scheduler,
+        )
+        print("backtest_mae", round(backtest_summary["overall_mae"], 6))
+
     test_df = pd.read_csv(args.test)
     X_train, y_train, train_regions, feat_cols = cnn_candidate.build_sequence_train_data_from_frame(
         train_df,
