@@ -34,6 +34,10 @@ def parse_args():
 
 
 def main():
+    os.environ["OMP_NUM_THREADS"] = "4"
+    os.environ["OPENBLAS_NUM_THREADS"] = "4"
+    os.environ["MKL_NUM_THREADS"] = "4"
+    os.environ["NUMEXPR_NUM_THREADS"] = "4"
     args = parse_args()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backend = cnn_candidate.require_deep_learning_backend()

@@ -169,6 +169,7 @@ def _fit_predict_cnn_split(
 
     import torch
 
+    torch.set_num_threads(4)
     torch.manual_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = cnn_candidate.build_torch_model(model_name, X_train.shape[2], dropout=dropout).to(device)

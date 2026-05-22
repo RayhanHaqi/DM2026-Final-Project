@@ -167,6 +167,8 @@ def train_torch_cnn(
         raise RuntimeError("This CNN runner currently supports PyTorch. Install torch before running it.")
 
     import torch
+
+    torch.set_num_threads(4)
     from sklearn.model_selection import GroupShuffleSplit
 
     torch.manual_seed(seed)
