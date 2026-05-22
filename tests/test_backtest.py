@@ -137,9 +137,9 @@ class BacktestCnnTests(unittest.TestCase):
         calls = []
         real_builder = backtest.build_window_samples_from_frame
 
-        def wrapped_builder(frame, window_days=91, include_calendar=False):
+        def wrapped_builder(frame, window_days=91, include_calendar=False, max_windows_per_region=None):
             calls.append(include_calendar)
-            return real_builder(frame, window_days=window_days, include_calendar=include_calendar)
+            return real_builder(frame, window_days=window_days, include_calendar=include_calendar, max_windows_per_region=max_windows_per_region)
 
         with patch.object(backtest, "build_window_samples_from_frame", side_effect=wrapped_builder):
             with patch.object(backtest, "_fit_predict_cnn_split", return_value=np.zeros((2, 5))):

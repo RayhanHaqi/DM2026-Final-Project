@@ -7,7 +7,7 @@ from sklearn.metrics import mean_absolute_error
 from model import cnn_candidate, train, utils
 
 
-def build_window_samples_from_frame(df, window_days=91, include_calendar=False):
+def build_window_samples_from_frame(df, window_days=91, include_calendar=False, max_windows_per_region=None):
     if include_calendar:
         df = cnn_candidate.add_calendar_features(df)
     meta_cols = ["region_id", "date", "score"]
@@ -18,6 +18,9 @@ def build_window_samples_from_frame(df, window_days=91, include_calendar=False):
     for region_id, grp in df.groupby("region_id", sort=False):
         indices = grp.index.to_numpy()
         score_positions = np.where(pd.notna(score_vals[indices]))[0]
+
+        if max_windows_per_region is not None and len(score_positions) > max_windows_per_region + 4:
+            score_positions = score_positions[-(max_windows_per_region + 4):]
 
         for start in range(0, len(score_positions) - 4):
             label_pos = score_positions[start:start + 5]
@@ -110,7 +113,9 @@ def evaluate_tree_backtest_from_frame(
     max_train_windows_per_region=52,
     params_override=None,
 ):
-    samples, feat_cols = build_window_samples_from_frame(df)
+    samples, feat_cols = build_window_samples_from_frame(
+        df, max_windows_per_region=max_train_windows_per_region + n_recent_cutoffs,
+    )
     splits = build_recent_backtest_splits(
         samples,
         n_recent_cutoffs=n_recent_cutoffs,
@@ -212,7 +217,11 @@ def evaluate_cnn_backtest_from_frame(
     scheduler=False,
     include_calendar=False,
 ):
-    samples, _ = build_window_samples_from_frame(df, include_calendar=include_calendar)
+    samples, _ = build_window_samples_from_frame(
+        df,
+        include_calendar=include_calendar,
+        max_windows_per_region=max_train_windows_per_region + n_recent_cutoffs,
+    )
     splits = build_recent_backtest_splits(
         samples,
         n_recent_cutoffs=n_recent_cutoffs,
