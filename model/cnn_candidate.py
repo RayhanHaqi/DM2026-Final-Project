@@ -6,7 +6,9 @@ import pandas as pd
 
 def add_calendar_features(df):
     out = df.copy()
-    dates = pd.to_datetime(out["date"])
+    dates = pd.to_datetime(out["date"], errors="coerce")
+    if dates.isna().any():
+        dates = dates.fillna(pd.Timestamp("2020-07-01"))
     day_of_year = dates.dt.dayofyear.astype("float32")
     month = dates.dt.month.astype("float32")
     week = dates.dt.isocalendar().week.astype("float32")

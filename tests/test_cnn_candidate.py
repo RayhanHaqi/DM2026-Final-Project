@@ -30,6 +30,21 @@ class CnnCandidateTests(unittest.TestCase):
         self.assertAlmostEqual(out.loc[0, "calendar__month_cos"], np.sqrt(3) / 2, places=6)
         self.assertEqual(df.columns.tolist(), ["region_id", "date", "score", "rain"])
 
+    def test_add_calendar_features_handles_out_of_bounds_dates(self):
+        from model import cnn_candidate
+
+        df = pd.DataFrame({
+            "region_id": [1, 2],
+            "date": ["3004-12-31", "2020-07-01"],
+            "score": [0.0, 1.0],
+            "rain": [2.0, 3.0],
+        })
+
+        out = cnn_candidate.add_calendar_features(df)
+
+        self.assertIn("calendar__doy_sin", out.columns)
+        self.assertFalse(out.isna().any().any())
+
     def test_sequence_train_builder_includes_calendar_features_only_when_requested(self):
         from model import cnn_candidate
 
