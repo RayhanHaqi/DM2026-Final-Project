@@ -52,6 +52,18 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("--epochs", result.stdout)
         self.assertIn("--calendar", result.stdout)
 
+    def test_blend_script_help_imports(self):
+        result = subprocess.run(
+            [sys.executable, "scripts/blend_submissions.py", "--help"],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Blend two submission CSVs", result.stdout)
+        self.assertIn("--candidate-weight", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
