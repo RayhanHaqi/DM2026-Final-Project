@@ -52,6 +52,27 @@ class BlendSubmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ID order"):
                 blend_submissions.blend_submission_frames(candidate_path, reference_path, candidate_weight=0.25)
 
+    def test_write_blend_submission_uses_explicit_output_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            candidate_path = f"{tmpdir}/candidate.csv"
+            reference_path = f"{tmpdir}/reference.csv"
+            output_path = f"{tmpdir}/explicit.csv"
+            make_submission(candidate_path, offset=2.0)
+            make_submission(reference_path, offset=0.0)
+
+            written_path = blend_submissions.write_blend_submission(
+                candidate_path,
+                reference_path,
+                candidate_weight=0.25,
+                output_path=output_path,
+            )
+
+            saved = pd.read_csv(output_path)
+
+        self.assertEqual(written_path, output_path)
+        self.assertAlmostEqual(saved.loc[0, "pred_week1"], 1.5)
+        self.assertAlmostEqual(saved.loc[1, "pred_week2"], 4.5)
+
 
 if __name__ == "__main__":
     unittest.main()
