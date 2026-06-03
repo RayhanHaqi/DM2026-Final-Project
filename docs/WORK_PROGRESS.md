@@ -1,379 +1,321 @@
 # DM2026 Final Project — Work Progress Summary
 
-**Date:** June 2, 2026
-**Best Public MAE:** 0.8112 (unchanged since May 31)
-**Gap to Baseline 3:** 0.0056
-**Total Submissions:** 58+
+**Last updated:** June 3, 2026  
+**Competition:** [data-mining-2026-final-project](https://www.kaggle.com/competitions/data-mining-2026-final-project)  
+**Metric:** MAE (0–5, lower is better)  
+**Team:** Muhammad Rayhan Athaillah (313540001), NYCU Data Mining Spring 2026
 
 ---
 
-## 1. Competition Overview
+## Executive summary
 
-- Competition: `data-mining-2026-final-project` on Kaggle
-- Metric: MAE (Mean Absolute Error, range 0-5)
-- Dataset: 12.3M training rows, 2248 regions, 14 meteorological features, 91-day windows
-- Task: Predict 5-week severity scores (0-5) per region
-- Team: Muhammad Rayhan Athaillah (313540001), NYCU Data Mining Spring 2026
+| Item | Value |
+|------|--------|
+| **Current best public MAE** | **0.8092** |
+| **Best file** | `output/daily_candidates/prob_blend_best83_ord17.csv` |
+| **Method** | Probability-space blend: 83% soft-wrapped season/LGBM anchor + 17% ordinal class probabilities |
+| **Previous best (Jun 2)** | 0.8112 — `lgbm_blend_w15_w15_20260531_133212.csv` |
+| **Improvement (Jun 3 sweep)** | −0.0020 vs 0.8112 anchor; −0.0009 vs first prob blend (92/8 @ 0.8101) |
+| **Gap to Baseline 3** | ~0.0036 (estimate; baseline 3 ≈ 0.8128) |
+
+**Breakthrough (June 3):** Cached probability blending — convert regression anchor to class probabilities (mean-preserving), blend with real ordinal XGB threshold probabilities, convert back to 5-week predictions. Public LB improved monotonically from 5% → 17% ordinal weight; plateau at **17–18%**.
 
 ---
 
-## 2. Submission History & Results
+## 1. Competition & data
 
-### Best Results by Approach
+- **Task:** 91-day met windows → predict next 5 weekly severity scores (0–5) per region  
+- **Train:** 12.3M rows, 2248 regions, 14 meteorological features  
+- **Test:** Last 91 days per region (same region IDs as train)  
+- **Submission:** Rows must match `data/sample_submission.csv` order exactly  
+- **Practical submit budget:** ~3–10/day (use one clear signal per slot when exploring)
 
-| Rank | Approach | Public MAE | Date |
-|------|----------|------------|------|
-| 1 | LightGBM 15% + Season-tree anchor | **0.8112** | May 31 |
-| 2 | LightGBM 10% + Season-tree anchor | 0.8113 | May 31 |
-| 3 | Grid XGB + LightGBM + Season-tree 10% | 0.8113 | May 31 |
-| 4 | Grid XGB 2% + Season-tree anchor | 0.8114 | May 31 |
-| 5 | LightGBM 20% + Season-tree anchor | 0.8114 | May 31 |
-| 6 | LightGBM 5% + Season-tree anchor | 0.8116 | May 31 |
-| 7 | Grid XGB + LightGBM 5% | 0.8116 | May 31 |
-| 8 | Grid XGB + LightGBM 2% | 0.8118 | May 31 |
-| 9 | Grid XGB 1% + Season-tree anchor | 0.8118 | May 31 |
-| 10 | Season-tree 20% blend | 0.8120 | May 30 |
+---
 
-### Failed Approaches
+## 2. Score timeline (major milestones)
 
-| Approach | Public MAE | Reason |
-|----------|------------|--------|
-| PatchTST | 1.04-1.21 | Massive overfitting |
+| Date | Approach | Public MAE | File / notes |
+|------|----------|------------|----------------|
+| May 18 | Small 1D CNN | 0.8222 | `cnn_1d_20260518_180837.csv` |
+| May 22 | CNN-GRU 25% blend | 0.8167 | GRU plateau branch |
+| May 23 | Tiny tree 2% into GRU anchor | 0.8159 | `w25_tree_hybrid_blend_w02_*` |
+| May 24 | Ordinal classification 1% | 0.8153 | Breakthrough structure |
+| May 25 | Tree4 + ordinal 1.5% | 0.8145 | `tree4_ordinal_w015_*` |
+| May 30 | Season-tree 20% into tree+ordinal | 0.8120 | Same-season history |
+| **May 31** | **LGBM 15% into season anchor** | **0.8112** | `lgbm_blend_w15_w15_20260531_133212.csv` |
+| Jun 2 | Grid XGB 1% into best | 0.8112 | Tied; CV models overfit standalone |
+| **Jun 3** | **Prob blend 83/17** | **0.8092** | `prob_blend_best83_ord17.csv` |
+
+### Failed / stopped branches (selected)
+
+| Approach | Public MAE | Why stopped |
+|----------|------------|-------------|
+| PatchTST | 1.04–1.21 | Severe overfit |
 | Meta-stacking Ridge | 1.16 | Trivial predictions |
-| CatBoost standalone | 0.8149-0.8156 | Underperformed |
-| Ordinal anchor (full replacement) | 0.8279-0.8314 | Distribution shift |
-| Grid XGB standalone | 0.849 | Overfitting |
-| LightGBM standalone | 0.847 | Overfitting |
-| Season anchor (full replacement) | 0.850-0.851 | Distribution shift |
-| Ordinal tree variants (today) | 0.827-0.831 | Worse than baseline |
-| Aggressive XGBoost (today) | 0.816-0.817 | Marginal or worse |
-| Historical severity standalone (today) | 0.878 | Very different distribution |
+| V2 CNN | 0.89+ | Val/public disconnect |
+| Ordinal/season **full replacement** | 0.83–0.85 | Distribution shift |
+| Standalone grid XGB / LGBM | 0.85–0.87 | CV overfit |
+| Historical severity standalone | 0.878 | Too different from anchor |
+| Seed42 GRU fine-tuning | ~0.8167 plateau | Marginal / wrong direction |
+| Stale Gaussian soft prob cache | — | Mean shift ~+0.1; do not use |
 
 ---
 
-## 3. Model Architecture Evolution
+## 3. June 3 — Probability blend (full session)
 
-### Phase 1: Basic Approaches (May 18-19)
-- **Small 1D CNN** (seed 42, 25 epochs): Public MAE **0.8222**
-- **V2 CNN**: Public MAE 0.8901-0.8967 (overfit)
-- **XGBoost baseline**: Public MAE 0.8434-0.8509
+### 3.1 Idea
 
-### Phase 2: Blending Era (May 20-22)
-- **CNN-GRU blend** (seed42 25%): Public MAE **0.8167**
-- **Multi-GRU**: Public MAE 0.8178 (stopped)
-- **Seed-21 GRU**: Public MAE 0.8181 (stopped)
-- **Tiny tree correction** (2%): Public MAE **0.8159**
+1. **Soft anchor:** Map current best CSV predictions to class probabilities `P(0)…P(5)` per (region, week) using **linear interpolation** between `floor(p)` and `ceil(p)` so the **expected value equals the regression prediction** (mean-preserving).  
+2. **Ordinal cache:** Train cumulative-threshold XGBoost ordinal models → true class probabilities.  
+3. **Blend:** `P_final = w_soft * P_soft + w_ord * P_ord` (renormalize), then `E[score] = sum_k k * P_final(k)`.  
+4. **Align regions:** Ordinal cache uses test `groupby` order; soft cache uses submission CSV order → `reorder_class_probs()` in blend script.
 
-### Phase 3: Ordinal Breakthrough (May 24-25)
-- **Ordinal classification** (1% blend): Public MAE **0.8153**
-- **Tree3 + ordinal1.5%**: Public MAE **0.8149**
-- **Tree4 + ordinal1.5%**: Public MAE **0.8145**
+### 3.2 Code added (mostly uncommitted)
 
-### Phase 4: Season Features (May 28-30)
-- **Same-season features** (month-of-year history): Public MAE **0.8120** at 20%
-- **Ordinal + season tree**: Public MAE **0.8120**
+| Path | Role |
+|------|------|
+| `model/probability_blend.py` | Soft probs, blend, reorder, cache I/O, probs→predictions |
+| `scripts/cache_ordinal_probabilities.py` | Train ordinal → `.npz` |
+| `scripts/cache_submission_soft_probs.py` | CSV → soft `.npz` (`--temperature` optional) |
+| `scripts/blend_prob_submissions.py` | Weighted multi-cache blend → CSV |
+| `tests/test_probability_blend.py` | 9 tests passing |
 
-### Phase 5: Grid Search (May 31 - June 1)
-- **XGBoost grid search** (108 combos): Best CV 0.2888 (depth=7, trees=300, lr=0.05)
-- **LightGBM grid search** (81 combos): Best CV 0.3153 (num_leaves=70, depth=6, lr=0.05)
-- **LightGBM 15% blend**: Public MAE **0.8112** (current best)
+**Committed earlier (Jun 2):** `same_season.py`, `ordinal_tree.py`, `severity_history.py`, many `generate_*` scripts (`94acffc`).
 
-### Phase 6: Aggressive Attempts (June 2) — All Failed
-- Ordinal tree standalone: 0.827-0.831
-- Grid XGB + LightGBM: 0.848
-- Season anchor: 0.850-0.851
-- Historical severity: 0.878
+### 3.3 Active caches
+
+| File | Shape | Use |
+|------|-------|-----|
+| `output/prob_cache/soft_lgbm_best.npz` | 2248×5×6 | Soft wrap of `lgbm_blend_w15` (mean-preserving) |
+| `output/prob_cache/ordinal_hybrid_20260603_145531.npz` | 2248×5×6 | Ordinal hybrid features |
+| ~~`soft_best_20260602_prob.npz`~~ | — | **Stale** (old Gaussian soft) |
+
+### 3.4 Bugs fixed
+
+1. `NameError: np` in `cache_ordinal_probabilities.py`  
+2. Region order mismatch between caches → `reorder_class_probs`  
+3. Gaussian soft mapping inflated means → default **linear** soft mapping
+
+### 3.5 Complete public sweep (June 3, 2026)
+
+All blends: `soft_lgbm_best.npz` + `ordinal_hybrid_20260603_145531.npz`.
+
+| Soft % | Ordinal % | File | Public MAE |
+|--------|-----------|------|------------|
+| 95 | 5 | `prob_blend_best0.95_ord0.05.csv` | 0.8105 |
+| 94 | 6 | `prob_blend_best0.94_ord0.06.csv` | 0.8104 |
+| 93 | 7 | `prob_blend_best93_ord07.csv` | 0.8102 |
+| 92 | 8 | `prob_blend_best92_ord08.csv` | 0.8101 |
+| 91.5 | 8.5 | `prob_blend_best915_ord085.csv` | 0.8100 |
+| 91 | 9 | `prob_blend_best91_ord09.csv` | 0.8100 |
+| 90 | 10 | `prob_blend_best90_ord10.csv` | 0.8099 |
+| 89 | 11 | `prob_blend_best89_ord11.csv` | 0.8098 |
+| 88 | 12 | `prob_blend_best88_ord12.csv` | 0.8097 |
+| 87 | 13 | `prob_blend_best87_ord13.csv` | 0.8096 |
+| 86 | 14 | `prob_blend_best86_ord14.csv` | 0.8095 |
+| 85 | 15 | `prob_blend_best85_ord15.csv` | 0.8094 |
+| 84 | 16 | `prob_blend_best84_ord16.csv` | 0.8093 |
+| **83** | **17** | **`prob_blend_best83_ord17.csv`** | **0.8092** |
+| 82 | 18 | `prob_blend_best82_ord18.csv` | 0.8092 (tie → stop) |
+
+**Conclusion:** Optimum ≈ **17% ordinal** in probability space. Below 8% and above 18% do not beat 0.8092 on public LB.
+
+### 3.6 Current best — reproduction
+
+```bash
+# Rebuild soft cache from scalar anchor (if anchor CSV changes)
+PYTHONPATH=. python scripts/cache_submission_soft_probs.py \
+  --submission output/daily_candidates/lgbm_blend_w15_w15_20260531_133212.csv \
+  --output-path output/prob_cache/soft_lgbm_best.npz
+
+# Best blend
+PYTHONPATH=. python scripts/blend_prob_submissions.py \
+  --cache output/prob_cache/soft_lgbm_best.npz:0.83 \
+  --cache output/prob_cache/ordinal_hybrid_20260603_145531.npz:0.17 \
+  --output-path output/daily_candidates/prob_blend_best83_ord17.csv
+
+# Local gates vs previous best
+PYTHONPATH=. python scripts/compare_candidate_distribution.py \
+  --candidate output/daily_candidates/prob_blend_best83_ord17.csv \
+  --reference output/daily_candidates/prob_blend_best92_ord08.csv
+```
+
+### 3.7 Optional micro-sweep (not submitted)
+
+- 83.5/16.5, 82.5/17.5 around plateau  
+- Rebuild `soft_lgbm_best.npz` from **0.8092 CSV** as new anchor for next prob round (may allow lower ordinal % with same LB)
 
 ---
 
-## 4. Key Technical Details
+## 4. Model architecture evolution (condensed)
 
-### Feature Engineering
+| Phase | Period | Highlight | Best MAE |
+|-------|--------|-----------|----------|
+| 1 CNN | May 18–19 | Small CNN seed42 | 0.8222 |
+| 2 Blend | May 20–22 | CNN-GRU into CNN | 0.8167 |
+| 3 Tree/ordinal | May 23–26 | 2% tree, ordinal %, residual, blackout | 0.8144 |
+| 4 Season | May 28–30 | Month-of-year severity | 0.8120 |
+| 5 Grid + LGBM | May 31–Jun 1 | LGBM 15% into season anchor | 0.8112 |
+| 6 Prob blend | **Jun 3** | **Probability-space ordinal mix** | **0.8092** |
 
-| Feature Set | Dimensions | Description |
-|-------------|------------|-------------|
-| Original baseline | 126 | 14 met features × 9 stats |
-| Extended baseline | 168 | 14 met features × 12 stats |
-| Hybrid temporal | 294 | Original + rolling windows + seasonal patterns |
-| Same-season | 4 | Month-of-year severity history |
-| Ordinal classification | 6 | Class probabilities (0-5) |
+### Best scalar anchor composition (pre–prob-blend)
 
-### Best Model Parameters
-
-**XGBoost (grid search winner):**
-```python
-{
-    'n_estimators': 300,
-    'max_depth': 7,
-    'learning_rate': 0.05,
-    'subsample': 0.8,
-    'colsample_bytree': 0.9,
-    'reg_alpha': 0.1,
-    'reg_lambda': 1.0,
-    'n_jobs': 2
-}
+```
+tree4+ordinal1.5%  →  +20% season_tree  →  season_w20 anchor (0.8120)
+                              →  +15% LightGBM  →  lgbm_blend_w15 (0.8112)
 ```
 
-**LightGBM (grid search winner):**
-```python
-{
-    'num_leaves': 70,
-    'max_depth': 6,
-    'learning_rate': 0.05,
-    'n_estimators': 300,
-    'n_jobs': 2,
-    'verbose': -1
-}
-```
+### Feature sets (reference)
 
-### Best Anchor Composition
-```
-tree4+ordinal1.5% anchor + 20% season tree = season_w20_w20_20260530_122421.csv (0.8120)
-```
+| Set | Dims | Notes |
+|-----|------|-------|
+| Extended baseline | 168 | 14×12 stats |
+| Hybrid temporal | 294 | Rolling + seasonal |
+| Same-season | +4 | Month-of-year severity |
+| Ordinal probs | 6 classes | Used in prob blend cache |
 
-### Best Submission Composition
-```
-85% season-tree anchor (0.8120) + 15% LightGBM (0.8470) = lgbm_blend_w15_w15_20260531_133212.csv (0.8112)
-```
+### Grid search winners (CV only — blend, don’t submit standalone)
+
+- **XGBoost:** depth=7, trees=300, lr=0.05, subsample=0.8, colsample=0.9, reg α=0.1, λ=1.0 → CV MAE 0.2888  
+- **LightGBM:** num_leaves=70, depth=6, lr=0.05, trees=300 → CV MAE 0.3153  
+
+**LGBM scalar blend into season anchor:**
+
+| LGBM weight | Public MAE |
+|-------------|------------|
+| 10% | 0.8113 |
+| **15%** | **0.8112** |
+| 20% | 0.8114 |
 
 ---
 
-## 5. Grid Search Results
+## 5. Key findings
 
-### XGBoost Grid Search (108 combinations)
+### What works
 
-**Stage 1 (27 combos):**
-- Best: depth=7, trees=300, lr=0.05, CV=0.2969
+1. **Ordinal structure** — cumulative thresholds / class probabilities match discrete 0–5 targets  
+2. **Probability-space blending** — smoother than scalar blend for ordinal signal (Jun 3)  
+3. **Same-season history** — strongest tabular signal before prob blend  
+4. **Conservative scalar blends** — 10–15% new model into anchor (May 31)  
+5. **GroupKFold by region** — no leakage across windows  
+6. **Distribution gates** — `compare_candidate_distribution.py` before submit  
 
-**Stage 2 (27 combos):**
-- Best: subsample=0.8, colsample=0.9, CV=0.2932
+### What does not work
 
-**Stage 3 (27 combos):**
-- Best: reg_alpha=0.1, reg_lambda=1.0, CV=0.2929
+1. Standalone high-CV models on public LB  
+2. Full replacement anchors (ordinal-only, season-only)  
+3. Deep nets without distribution match (PatchTST, V2 CNN)  
+4. Stale soft-prob caches (Gaussian mapping)  
+5. Many submission weights same day without reading LB (Jun 3 used many slots intentionally for sweep)
 
-**Stage 4 (27 combos):**
-- Best: depth=7, trees=300, lr=0.05, subsample=0.8, colsample=0.9, alpha=0.1, lambda=1.0, CV=0.2888
+### Critical insights
 
-**Top 5 configurations:**
-
-| Rank | Depth | Trees | LR | Subsample | Colsample | Alpha | Lambda | CV MAE |
-|------|-------|-------|-----|-----------|-----------|-------|--------|--------|
-| 1 | 7 | 300 | 0.05 | 0.8 | 0.9 | 0.1 | 1.0 | 0.2888 |
-| 2 | 7 | 300 | 0.05 | 0.9 | 0.8 | 0.1 | 1.0 | 0.2890 |
-| 3 | 7 | 300 | 0.05 | 0.8 | 0.8 | 0.1 | 1.0 | 0.2891 |
-| 4 | 7 | 300 | 0.05 | 0.9 | 0.9 | 0.1 | 1.0 | 0.2893 |
-| 5 | 7 | 200 | 0.05 | 0.8 | 0.9 | 0.1 | 1.0 | 0.2895 |
-
-### LightGBM Grid Search (81 combinations)
-
-**Best:** num_leaves=70, depth=6, lr=0.05, trees=300, CV=0.3153
-
-**Top 5 configurations:**
-
-| Rank | num_leaves | depth | lr | trees | CV MAE |
-|------|------------|-------|-----|-------|--------|
-| 1 | 70 | 6 | 0.05 | 300 | 0.3153 |
-| 2 | 70 | 7 | 0.05 | 300 | 0.3155 |
-| 3 | 50 | 6 | 0.05 | 300 | 0.3160 |
-| 4 | 70 | 6 | 0.05 | 200 | 0.3162 |
-| 5 | 50 | 7 | 0.05 | 300 | 0.3164 |
+- **CV ≠ public** for standalone models; blending and prob-space mix generalize better  
+- **Higher ordinal % in prob blend helped up to 17%** — opposite of tiny 1–2% scalar ordinal blends (different mechanism: full 6-way distribution vs small scalar nudge)  
+- **Mean-preserving soft wrap** is required or predictions drift high  
+- **Region alignment** between caches is mandatory  
 
 ---
 
-## 6. Blend Weight Optimization
+## 6. Repository & git state (June 3)
 
-### LightGBM Blend Weights (into season-tree anchor)
+- **Branch:** `main` (ahead of origin)  
+- **Committed:** `94acffc` pipelines (season, ordinal, severity, generate scripts)  
+- **Local-only:** `AGENTS.md` (gitignored; experiment log)  
+- **Uncommitted (prob blend):** `model/probability_blend.py`, `scripts/cache_*`, `scripts/blend_prob_submissions.py`, `tests/test_probability_blend.py`, many candidates under `output/daily_candidates/`  
 
-| Weight | Public MAE | Delta |
-|--------|------------|-------|
-| 0% | 0.8120 | baseline |
-| 2% | 0.8118 | -0.0002 |
-| 5% | 0.8116 | -0.0004 |
-| 10% | 0.8113 | -0.0007 |
-| **15%** | **0.8112** | **-0.0008** |
-| 20% | 0.8114 | -0.0006 |
-| 25% | 0.8117 | -0.0003 |
-| 30% | 0.8123 | +0.0003 |
+### Core scripts inventory
 
-**Conclusion:** Optimal weight is 12-15%. Improvement curve flattens and reverses after 15%.
+| Script | Purpose |
+|--------|---------|
+| `blend_prob_submissions.py` | Probability cache blend |
+| `cache_submission_soft_probs.py` | CSV → soft npz |
+| `cache_ordinal_probabilities.py` | Train ordinal → npz |
+| `blend_submissions.py` | Scalar CSV blend |
+| `compare_candidate_distribution.py` | Pre-submit safety |
+| `generate_lgbm_submission.py` | LGBM grid |
+| `grid_search_xgboost.py` | XGB grid |
+| `generate_ordinal_tree_submission.py` | Ordinal tree CSV |
+| `generate_season_tree_submission.py` | Season features |
 
-### Grid XGB + LightGBM + Season-tree (10%)
-
-| Weight | Public MAE |
-|--------|------------|
-| 2% | 0.8118 |
-| 5% | 0.8116 |
-| **10%** | **0.8113** |
-| 15% | 0.8114 |
-| 20% | 0.8118 |
-
----
-
-## 7. File Inventory
-
-### Core Scripts
-
-| File | Purpose |
-|------|---------|
-| `scripts/grid_search_xgboost.py` | Staged XGBoost grid search |
-| `scripts/generate_lgbm_submission.py` | LightGBM grid search |
-| `scripts/blend_submissions.py` | Blend two CSVs by weight |
-| `scripts/generate_submission.py` | Generate submission from model |
-| `scripts/compare_candidate_distribution.py` | Compare prediction distributions |
-
-### Model Implementations
-
-| File | Purpose |
-|------|---------|
-| `model/temporal_features.py` | Hybrid temporal features (294 dims) |
-| `model/temporal_tree.py` | XGBoost per-week models |
-| `model/same_season.py` | Month-of-year severity features |
-| `model/ordinal_tree.py` | Ordinal classification helpers |
-| `model/severity_history.py` | Score history features |
-| `model/experiments.py` | clip, blend, build, validate |
-
-### Test Files
+### Tests
 
 | File | Status |
 |------|--------|
-| `tests/test_grid_search.py` | 4 tests, passing |
-| `tests/test_lgbm.py` | 2 tests, passing |
-| `tests/test_blend_submissions.py` | 4 tests, passing |
-
-### Documentation
-
-| File | Purpose |
-|------|---------|
-| `AGENTS.md` | Project state, submission history |
-| `docs/WORK_PROGRESS.md` | This file |
-| `docs/PRELIMINARY_REPORT.md` | Full preliminary report |
-| `docs/superpowers/plans/` | Implementation plans |
-| `docs/superpowers/specs/` | Design specs |
+| `tests/test_probability_blend.py` | 9 passed |
+| `tests/test_blend_submissions.py` | passing |
+| `tests/test_ordinal_tree.py` | passing |
+| Broader suite | 56+ passed; `test_cnn_gru` needs PyTorch |
 
 ---
 
-## 8. Cached Data Files
+## 7. Cached training data
 
-| File | Size | Description |
-|------|------|-------------|
-| `data/train_X_temporal_hybrid_52.npy` | 268MB | Training features (119144×294) |
-| `data/train_y_temporal_hybrid_52.npy` | 4.6MB | Training labels (119144×5) |
-| `data/train_regions_temporal_hybrid_52.npy` | 953KB | Training region IDs |
-| `data/test_X_temporal_hybrid_0.npy` | 2.2MB | Test features (2248×294) |
-| `data/test_regions_temporal_hybrid_0.npy` | 18KB | Test region IDs |
+| File | Description |
+|------|-------------|
+| `data/train_X_temporal_hybrid_52.npy` | Train features 119144×294 |
+| `data/train_y_temporal_hybrid_52.npy` | Labels 119144×5 |
+| `data/test_X_temporal_hybrid_0.npy` | Test 2248×294 |
 
 ---
 
-## 9. Key Findings & Insights
+## 8. Next steps (prioritized)
 
-### What Works
-1. **Ordinal classification** — treats severity as ordered classes, aligns with problem structure
-2. **Same-season features** — month-of-year historical severity patterns
-3. **Conservative blending** — 10-15% new models into proven anchor
-4. **Staged grid search** — systematic parameter space coverage
-5. **GroupKFold by region** — prevents data leakage
-
-### What Doesn't Work
-1. **Standalone grid search models** — overfit to CV, poor public MAE
-2. **Full model replacement** — causes distribution shift
-3. **Neural networks** (PatchTST, V2 CNN) — massive overfitting
-4. **Meta-stacking** — produces trivial predictions
-5. **Aggressive blending** (>20%) — degrades performance
-6. **CatBoost** — underperformed XGBoost/LightGBM
-
-### Critical Insights
-- **CV MAE is not predictive of public MAE** — standalone grid search models overfit
-- **Conservative blending is essential** — prevents overfitting, maintains distribution
-- **Ordinal classification aligns with problem structure** — severity scores are ordered classes
-- **Same-season features are the strongest new signal** — month-of-year patterns matter
-- **GroupKFold by region prevents leakage** — windows from same region stay together
-- **Season anchor (20%) is better than ordinal anchor** — ordinal causes distribution shift
-- **Grid search helps, but only when blended** — standalone overfits, blend works
+1. **Commit** prob-blend pipeline (`probability_blend.py`, scripts, tests).  
+2. **Micro-tune** 16.5–17.5% ordinal if submission slots remain.  
+3. **New anchor:** rebuild `soft_lgbm_best.npz` from `prob_blend_best83_ord17.csv`; re-sweep 5–12% ordinal.  
+4. **Combine signals:** prob-blend best + tiny scalar residual/season (only if distribution-safe).  
+5. **Update** `docs/PRELIMINARY_REPORT.md` (still cites 0.8113 in places).  
+6. **Log** new results in local `AGENTS.md` after each Kaggle feedback.  
 
 ---
 
-## 10. Current State & Next Steps
+## 9. Submission checklist
 
-### Current Best Submission
-- **File:** `output/daily_candidates/lgbm_blend_w15_w15_20260531_133212.csv`
-- **Public MAE:** 0.8112
-- **Composition:** 85% season-tree anchor + 15% LightGBM
-- **Anchor:** tree4+ordinal1.5% + 20% season tree
-
-### New Candidates Ready for Tomorrow
-- `alt_lgbm_w10_w10_*.csv` — Alt LightGBM params (num_leaves=50, depth=5, lr=0.04) at 10%
-- `residual_w05_w05_*.csv` — Residual correction at 5%
-- `residual_w10_w10_*.csv` — Residual correction at 10%
-- `residual_w15_w15_*.csv` — Residual correction at 15%
-
-### Tomorrow Commands
 ```bash
-kaggle competitions submit -c data-mining-2026-final-project -f output/daily_candidates/alt_lgbm_w10_w10_20260602_154539.csv -m "alt lgbm w10"
-kaggle competitions submit -c data-mining-2026-final-project -f output/daily_candidates/residual_w05_w05_20260602_154543.csv -m "residual w05"
-kaggle competitions submit -c data-mining-2026-final-project -f output/daily_candidates/residual_w10_w10_20260602_154540.csv -m "residual w10"
-kaggle competitions submit -c data-mining-2026-final-project -f output/daily_candidates/residual_w15_w15_20260602_154545.csv -m "residual w15"
-```
+# Validate format
+PYTHONPATH=. python -c "
+from model import experiments
+import pandas as pd
+s = pd.read_csv('data/sample_submission.csv')
+sub = pd.read_csv('output/daily_candidates/prob_blend_best83_ord17.csv')
+print(experiments.validate_submission(sub, s))
+"
 
-### Replanning Needed
-All aggressive approaches failed. Current methods are plateaued. Need fundamentally different:
-- **Features** — volatility, trends, non-linear interactions
-- **Models** — stacking with OOF predictions, different architectures
-- **Approaches** — region-specific models, temporal attention mechanisms
-
----
-
-## 11. Lessons Learned
-
-1. **Start with conservative baselines** — ordinal classification was the breakthrough
-2. **Grid search is valuable, but only when blended** — standalone overfits
-3. **GroupKFold by region is essential** — prevents data leakage
-4. **Conservative blending prevents overfitting** — 10-15% is optimal
-5. **Same-season features are powerful** — month-of-year patterns matter
-6. **Distribution checks are critical** — don't trust CV alone
-7. **Iterative improvement works** — small refinements compound
-8. **Don't chase marginal gains** — plateau means need new approach
-
----
-
-## 12. Environment & Configuration
-
-**Hardware:**
-- CPU: 12 cores (using 2 threads)
-- RAM: 32GB
-- GPU: NVIDIA (currently unavailable)
-
-**Software:**
-- Python 3.10
-- XGBoost, LightGBM, scikit-learn, pandas, numpy
-- Jupyter notebooks
-
-**Environment Variables:**
-```bash
-OMP_NUM_THREADS=2
-OPENBLAS_NUM_THREADS=2
-MKL_NUM_THREADS=2
-NUMEXPR_NUM_THREADS=2
+# Submit
+kaggle competitions submit -c data-mining-2026-final-project \
+  -f output/daily_candidates/prob_blend_best83_ord17.csv \
+  -m "prob blend 83/17 best"
 ```
 
 ---
 
-## 13. Submission Guidelines
+## 10. Environment
 
-- **Budget:** 10 submissions/day
-- **Format:** CSV with columns matching `data/sample_submission.csv`
-- **Naming:** `method_variant_YYYYMMDD_HHMMSS.csv`
-- **Validation:** Always run `experiments.validate_submission()` before submitting
-- **Distribution check:** Compare against current best using `compare_candidate_distribution.py`
-
----
-
-## 14. Contact & Resources
-
-- **Instructor:** Jyun-Yu Jiang
-- **Email:** wu80623@gmail.com (put "DM final" in subject)
-- **Competition:** https://www.kaggle.com/competitions/data-mining-2026-final-project
-- **Course:** NYCU Data Mining Spring 2026
+- Python 3.10, numpy, pandas, scikit-learn, xgboost, lightgbm  
+- `pip install -e .` for package layout  
+- Thread limits: `OMP_NUM_THREADS=2` (etc.) when training  
+- Kaggle auth: `~/.kaggle/kaggle.json`
 
 ---
 
-*Last updated: June 2, 2026*
+## 11. Documentation map
+
+| File | Role |
+|------|------|
+| **`docs/WORK_PROGRESS.md`** | **This file — single consolidated progress log** |
+| `AGENTS.md` | Local-only detailed experiment table (gitignored) |
+| `docs/PRELIMINARY_REPORT.md` | Course report draft |
+| `docs/superpowers/plans/` | Archived implementation plans |
+| `docs/RESEARCH_2026-05-23_PLATEAU_ALTERNATIVES.md` | Research notes |
+
+---
+
+## 12. Contact
+
+- **Instructor:** Jyun-Yu Jiang — wu80623@gmail.com (subject: "DM final")  
+- **Competition:** https://www.kaggle.com/competitions/data-mining-2026-final-project  
+
+---
+
+*End of work progress summary.*

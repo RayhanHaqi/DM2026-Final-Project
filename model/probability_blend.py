@@ -1,0 +1,151 @@
+"""Cache and blend class-probability predictions for ordinal severity scores."""
+
+import os
+
+import numpy as np
+
+from model.ordinal_tree import expected_values_from_week_class_probs
+
+
+def soft_probs_from_regression(values, temperature=None):
+    """Map regression values in [0, 5] to class probabilities over scores 0..5.
+
+    Default mode linearly interpolates between floor and ceil scores so the
+    expected value matches the input prediction. Optional temperature spreads
+    mass to neighboring scores (Gaussian bump); use only when exploring,
+    because it shifts means.
+    """
+    arr = np.clip(np.asarray(values, dtype=float), 0.0, 5.0)
+    if arr.ndim == 1:
+        arr = arr[:, None]
+
+    if temperature is None:
+        low = np.floor(arr).astype(int)
+        high = np.ceil(arr).astype(int)
+        frac = arr - low
+        probs = np.zeros(arr.shape + (6,), dtype=float)
+        for class_id in range(6):
+            probs[..., class_id] = np.where(
+                low == class_id,
+                1.0 - frac,
+                np.where(high == class_id, frac, 0.0),
+            )
+        return probs
+
+    score_ids = np.arange(6, dtype=float)
+    diff = score_ids.reshape(1, 1, 6) - arr[..., None]
+    logits = -0.5 * (diff / max(float(temperature), 1e-6)) ** 2
+    logits = logits - logits.max(axis=-1, keepdims=True)
+    exp_logits = np.exp(logits)
+    probs = exp_logits / exp_logits.sum(axis=-1, keepdims=True)
+    return np.clip(probs, 0.0, 1.0)
+
+
+def blend_class_probs(prob_list, weights):
+    """Weighted average of class-probability tensors with shape (n_samples, n_weeks, 6)."""
+    if len(prob_list) != len(weights):
+        raise ValueError("prob_list and weights must have the same length")
+    if not prob_list:
+        raise ValueError("prob_list must not be empty")
+
+    weight_arr = np.asarray(weights, dtype=float)
+    if np.any(weight_arr < 0):
+        raise ValueError("weights must be non-negative")
+    if weight_arr.sum() <= 0:
+        raise ValueError("weights must sum to a positive value")
+    weight_arr = weight_arr / weight_arr.sum()
+
+    base_shape = prob_list[0].shape
+    for probs in prob_list:
+        if probs.shape != base_shape:
+            raise ValueError("all probability caches must have the same shape")
+
+    blended = np.zeros(base_shape, dtype=float)
+    for weight, probs in zip(weight_arr, prob_list):
+        blended += weight * probs
+
+    row_sums = blended.sum(axis=-1, keepdims=True)
+    row_sums = np.where(row_sums > 0, row_sums, 1.0)
+    return np.clip(blended / row_sums, 0.0, 1.0)
+
+
+def class_probs_to_predictions(class_probs):
+    """Convert (n_samples, n_weeks, 6) class probabilities to (n_samples, n_weeks) scores."""
+    return expected_values_from_week_class_probs(class_probs)
+
+
+def _encode_metadata_value(value):
+    if isinstance(value, (bool, int, float, np.integer, np.floating)):
+        return np.array(value)
+    if value is None:
+        return np.array("")
+    return np.array(str(value))
+
+
+def save_prob_cache(path, class_probs, region_ids, source, metadata=None):
+    """Save probability cache to .npz (class_probs shape: n_regions x n_weeks x 6)."""
+    arr = np.asarray(class_probs, dtype=float)
+    if arr.ndim != 3 or arr.shape[-1] != 6:
+        raise ValueError("class_probs must have shape (n_regions, n_weeks, 6)")
+
+    payload = {
+        "class_probs": arr,
+        "region_ids": np.asarray(region_ids),
+        "source": np.array(source),
+    }
+    if metadata:
+        for key, value in metadata.items():
+            payload[f"meta_{key}"] = _encode_metadata_value(value)
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    np.savez_compressed(path, **payload)
+    return path
+
+
+def reorder_class_probs(class_probs, region_ids, target_region_ids):
+    """Reorder (n_regions, n_weeks, 6) probabilities to match target_region_ids."""
+    lookup = {str(rid): idx for idx, rid in enumerate(region_ids)}
+    missing = [rid for rid in target_region_ids if rid not in lookup]
+    if missing:
+        raise ValueError(
+            f"Probability cache is missing {len(missing)} regions; first missing id: {missing[0]}"
+        )
+    indices = [lookup[str(rid)] for rid in target_region_ids]
+    return np.asarray(class_probs, dtype=float)[indices]
+
+
+def load_prob_cache(path):
+    """Load probability cache; returns dict with class_probs, region_ids, source."""
+    data = np.load(path, allow_pickle=True)
+    source = data["source"]
+    if isinstance(source, np.ndarray):
+        source = str(source.item()) if source.shape == () else str(source[0])
+
+    result = {
+        "class_probs": np.asarray(data["class_probs"], dtype=float),
+        "region_ids": [str(rid) for rid in data["region_ids"].tolist()],
+        "source": source,
+        "path": path,
+    }
+    metadata = {}
+    for key in data.files:
+        if key.startswith("meta_"):
+            metadata[key[5:]] = data[key]
+    if metadata:
+        result["metadata"] = metadata
+    return result
+
+
+def parse_weighted_cache_specs(specs):
+    """Parse ['path.npz:0.15', 'other.npz:0.85'] into [(path, weight), ...]."""
+    parsed = []
+    for spec in specs:
+        if ":" not in spec:
+            raise ValueError(f"Cache spec must be path:weight, got {spec!r}")
+        path, weight_str = spec.rsplit(":", 1)
+        path = path.strip()
+        weight = float(weight_str.strip())
+        if not path:
+            raise ValueError(f"Missing cache path in spec {spec!r}")
+        parsed.append((path, weight))
+    return parsed
