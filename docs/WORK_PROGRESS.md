@@ -232,7 +232,7 @@ tree4+ordinal1.5%  →  +20% season_tree  →  season_w20 anchor (0.8120)
 |--------|---------|
 | `blend_prob_submissions.py` | Probability cache blend |
 | `cache_submission_soft_probs.py` | CSV → soft npz |
-| `cache_ordinal_probabilities.py` | Train ordinal → npz |
+| `cache_ordinal_probabilities.py` | Train ordinal → npz (`--feature-set hybrid\|hybrid_season`) |
 | `blend_submissions.py` | Scalar CSV blend |
 | `compare_candidate_distribution.py` | Pre-submit safety |
 | `generate_lgbm_submission.py` | LGBM grid |
@@ -290,7 +290,7 @@ On `soft_prob_best8089` anchor: **7–8%** → 0.8088; **6%** → 0.8090; **9–
 
 ### 8.4 Season-history ordinal (offline, Jun 4 PM)
 
-Script: `scripts/cache_ordinal_season_probabilities.py` → `ordinal_season_hybrid_best.npz` (299 dims = hybrid + 5 season).
+Script: `scripts/cache_ordinal_probabilities.py --feature-set hybrid_season` → `ordinal_season_hybrid_best.npz` (299 dims).
 
 | File | Blend | Offline gate vs 0.8088 | Submit? |
 |------|-------|------------------------|---------|

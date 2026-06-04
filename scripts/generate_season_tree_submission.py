@@ -7,36 +7,25 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from model import experiments, temporal_features, temporal_tree
-from model.same_season import build_train_same_season_features, build_test_same_season_features
+from model import experiments, temporal_tree
+from model.ordinal_features import load_ordinal_train_test
 
 
 def main():
-    os.environ["OMP_NUM_THREADS"] = "2"
-    os.environ["OPENBLAS_NUM_THREADS"] = "2"
-    os.environ["MKL_NUM_THREADS"] = "2"
-    os.environ["NUMEXPR_NUM_THREADS"] = "2"
+    experiments.set_thread_limits(2)
 
     train_path = "data/train.csv"
     test_path = "data/test.csv"
     sample_path = "data/sample_submission.csv"
     max_windows = 52
 
-    train_df = pd.read_csv(train_path)
-    test_df = pd.read_csv(test_path)
-
-    print("Loading hybrid features...")
-    X_train, y_train, train_regions = temporal_features.load_temporal_train_data(
-        train_path, max_windows_per_region=max_windows, feature_set="hybrid",
+    print("Loading hybrid + same-season features...")
+    X_train, y_train, train_regions, X_test, test_regions = load_ordinal_train_test(
+        train_path,
+        test_path,
+        max_windows_per_region=max_windows,
+        feature_set="hybrid_season",
     )
-    X_test, test_regions = temporal_features.load_temporal_test_data(test_path, feature_set="hybrid")
-
-    print("Building same-season features...")
-    season_train = build_train_same_season_features(train_df, max_windows_per_region=max_windows)
-    season_test = build_test_same_season_features(train_df, test_df)
-
-    X_train = pd.concat([X_train.reset_index(drop=True), season_train], axis=1)
-    X_test = pd.concat([X_test.reset_index(drop=True), season_test], axis=1)
 
     params = {
         "n_estimators": 250,
@@ -51,7 +40,9 @@ def main():
     }
 
     print("Cross-validating...")
-    scores, cv_mean, _ = temporal_tree.cv_evaluate_week_models(X_train, y_train, train_regions, n_splits=5, params_override=params)
+    scores, cv_mean, _ = temporal_tree.cv_evaluate_week_models(
+        X_train, y_train, train_regions, n_splits=5, params_override=params
+    )
     print(f"CV MAE = {cv_mean:.6f} (folds: {[f'{s:.4f}' for s in scores]})")
 
     print("Training full model...")

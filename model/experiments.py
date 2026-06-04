@@ -1,5 +1,19 @@
+import os
+
 import numpy as np
 import pandas as pd
+
+
+def set_thread_limits(n_threads):
+    """Set BLAS/OpenMP thread env vars for repeatable training runs."""
+    value = str(int(n_threads))
+    for key in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ[key] = value
 
 
 def clip_predictions(preds):

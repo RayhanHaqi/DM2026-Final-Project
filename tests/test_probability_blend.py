@@ -7,14 +7,15 @@ import pandas as pd
 
 from model.probability_blend import (
     blend_class_probs,
+    blend_prob_caches,
     class_probs_to_predictions,
     load_prob_cache,
     parse_weighted_cache_specs,
     reorder_class_probs,
     save_prob_cache,
     soft_probs_from_regression,
+    write_prob_blend_submission,
 )
-from scripts import blend_prob_submissions
 
 
 class ProbabilityBlendTests(unittest.TestCase):
@@ -95,7 +96,7 @@ class ProbabilityBlendTests(unittest.TestCase):
       save_prob_cache(cache_a, probs_a, ["R1", "R2"], source="a")
       save_prob_cache(cache_b, probs_b, ["R2", "R1"], source="b")
 
-      blended, region_ids, _ = blend_prob_submissions.blend_prob_caches(
+      blended, region_ids, _ = blend_prob_caches(
           [f"{cache_a}:0.5", f"{cache_b}:0.5"],
           ["R1", "R2"],
       )
@@ -127,7 +128,7 @@ class ProbabilityBlendTests(unittest.TestCase):
         "pred_week2": [0.0, 0.0],
       }).to_csv(sample_path, index=False)
 
-      blend_prob_submissions.write_prob_blend_submission(
+      write_prob_blend_submission(
           [f"{cache_a}:0.5", f"{cache_b}:0.5"],
           sample_path,
           output_path,

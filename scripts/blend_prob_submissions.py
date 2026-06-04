@@ -5,49 +5,9 @@ import os
 import sys
 from datetime import datetime
 
-import pandas as pd
-
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from model import experiments
-from model.probability_blend import (
-    blend_class_probs,
-    class_probs_to_predictions,
-    load_prob_cache,
-    parse_weighted_cache_specs,
-    reorder_class_probs,
-)
-
-
-def blend_prob_caches(cache_specs, target_region_ids):
-    parsed = parse_weighted_cache_specs(cache_specs)
-    loaded = [load_prob_cache(path) for path, _ in parsed]
-    target_region_ids = [str(rid) for rid in target_region_ids]
-
-    aligned_probs = []
-    for item in loaded:
-        aligned_probs.append(
-            reorder_class_probs(item["class_probs"], item["region_ids"], target_region_ids)
-        )
-
-    weights = [weight for _, weight in parsed]
-    blended = blend_class_probs(aligned_probs, weights)
-    return blended, target_region_ids, loaded
-
-
-def write_prob_blend_submission(cache_specs, sample_path, output_path):
-    sample = pd.read_csv(sample_path)
-    target_region_ids = sample.iloc[:, 0].tolist()
-    blended, region_ids, sources = blend_prob_caches(cache_specs, target_region_ids)
-    preds = class_probs_to_predictions(blended)
-    sub = experiments.build_submission(region_ids, preds, sample)
-    ok, messages = experiments.validate_submission(sub, sample)
-    if not ok:
-        raise ValueError("; ".join(messages))
-
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    sub.to_csv(output_path, index=False)
-    return output_path, sources
+from model.probability_blend import write_prob_blend_submission
 
 
 def parse_args():

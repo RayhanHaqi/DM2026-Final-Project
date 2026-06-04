@@ -3,7 +3,9 @@
 import os
 
 import numpy as np
+import pandas as pd
 
+from model import experiments
 from model.ordinal_tree import expected_values_from_week_class_probs
 
 
@@ -83,7 +85,12 @@ def _encode_metadata_value(value):
 
 
 def save_prob_cache(path, class_probs, region_ids, source, metadata=None):
-    """Save probability cache to .npz (class_probs shape: n_regions x n_weeks x 6)."""
+    """Save probability cache to .npz (class_probs shape: n_regions x n_weeks x 6).
+
+    region_ids order is whatever the producer used (test groupby or submission CSV).
+    Consumers blending multiple caches must pass sample_submission region order and
+    call reorder_class_probs before blend_class_probs.
+    """
     arr = np.asarray(class_probs, dtype=float)
     if arr.ndim != 3 or arr.shape[-1] != 6:
         raise ValueError("class_probs must have shape (n_regions, n_weeks, 6)")
@@ -149,3 +156,34 @@ def parse_weighted_cache_specs(specs):
             raise ValueError(f"Missing cache path in spec {spec!r}")
         parsed.append((path, weight))
     return parsed
+
+
+def blend_prob_caches(cache_specs, target_region_ids):
+    """Load weighted caches, align regions, and return blended class probabilities."""
+    parsed = parse_weighted_cache_specs(cache_specs)
+    loaded = [load_prob_cache(path) for path, _ in parsed]
+    target_region_ids = [str(rid) for rid in target_region_ids]
+
+    aligned_probs = [
+        reorder_class_probs(item["class_probs"], item["region_ids"], target_region_ids)
+        for item in loaded
+    ]
+    weights = [weight for _, weight in parsed]
+    blended = blend_class_probs(aligned_probs, weights)
+    return blended, target_region_ids, loaded
+
+
+def write_prob_blend_submission(cache_specs, sample_path, output_path):
+    """Blend caches and write a submission CSV in sample_submission row order."""
+    sample = pd.read_csv(sample_path)
+    target_region_ids = sample.iloc[:, 0].tolist()
+    blended, region_ids, sources = blend_prob_caches(cache_specs, target_region_ids)
+    preds = class_probs_to_predictions(blended)
+    sub = experiments.build_submission(region_ids, preds, sample)
+    ok, messages = experiments.validate_submission(sub, sample)
+    if not ok:
+        raise ValueError("; ".join(messages))
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    sub.to_csv(output_path, index=False)
+    return output_path, sources
