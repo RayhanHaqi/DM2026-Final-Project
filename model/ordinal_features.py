@@ -2,10 +2,21 @@
 
 import pandas as pd
 
-from model import temporal_features
+from model import severity_history, temporal_features
 from model.same_season import build_train_same_season_features, build_test_same_season_features
 
-ORDINAL_FEATURE_SETS = ("hybrid", "hybrid_season")
+ORDINAL_FEATURE_SETS = ("hybrid", "hybrid_season", "hybrid_blackout")
+BLACKOUT_WINDOW_DAYS = 91
+
+
+def _concat_aligned_features(X, extra, label):
+    if len(X) != len(extra):
+        raise ValueError(
+            f"{label} row mismatch: hybrid {len(X)} vs {label} {len(extra)}"
+        )
+    X_reset = X.reset_index(drop=True)
+    extra_reset = extra.reset_index(drop=True)
+    return pd.concat([X_reset, extra_reset], axis=1)
 
 
 def load_ordinal_train_test(
@@ -36,21 +47,29 @@ def load_ordinal_train_test(
         return X_train, y_train, train_regions, X_test, test_regions
 
     train_df = pd.read_csv(train_path)
-    test_df = pd.read_csv(test_path)
-    season_train = build_train_same_season_features(
-        train_df, max_windows_per_region=max_windows_per_region
+
+    if feature_set == "hybrid_season":
+        test_df = pd.read_csv(test_path)
+        season_train = build_train_same_season_features(
+            train_df, max_windows_per_region=max_windows_per_region
+        )
+        season_test = build_test_same_season_features(train_df, test_df)
+        X_train = _concat_aligned_features(X_train, season_train, "season")
+        X_test = _concat_aligned_features(X_test, season_test, "season")
+        return X_train, y_train, train_regions, X_test, test_regions
+
+    train_history = severity_history.build_train_blackout_history_features_from_frame(
+        train_df,
+        max_windows_per_region=max_windows_per_region,
+        window_days=BLACKOUT_WINDOW_DAYS,
     )
-    season_test = build_test_same_season_features(train_df, test_df)
-
-    if len(season_train) != len(X_train):
-        raise ValueError(
-            f"Train row mismatch: hybrid {len(X_train)} vs season {len(season_train)}"
-        )
-    if len(season_test) != len(X_test):
-        raise ValueError(
-            f"Test row mismatch: hybrid {len(X_test)} vs season {len(season_test)}"
-        )
-
-    X_train = pd.concat([X_train.reset_index(drop=True), season_train], axis=1)
-    X_test = pd.concat([X_test.reset_index(drop=True), season_test], axis=1)
+    test_history = severity_history.build_test_blackout_history_features_from_frame(
+        train_df,
+        test_regions,
+        window_days=BLACKOUT_WINDOW_DAYS,
+    )
+    train_history = train_history.add_prefix("history__")
+    test_history = test_history.add_prefix("history__")
+    X_train = _concat_aligned_features(X_train, train_history, "blackout")
+    X_test = _concat_aligned_features(X_test, test_history, "blackout")
     return X_train, y_train, train_regions, X_test, test_regions

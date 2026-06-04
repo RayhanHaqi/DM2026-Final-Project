@@ -232,7 +232,7 @@ tree4+ordinal1.5%  →  +20% season_tree  →  season_w20 anchor (0.8120)
 |--------|---------|
 | `blend_prob_submissions.py` | Probability cache blend |
 | `cache_submission_soft_probs.py` | CSV → soft npz |
-| `cache_ordinal_probabilities.py` | Train ordinal → npz (`--feature-set hybrid\|hybrid_season`) |
+| `cache_ordinal_probabilities.py` | Train ordinal → npz (`--feature-set hybrid\|hybrid_season\|hybrid_blackout`) |
 | `blend_submissions.py` | Scalar CSV blend |
 | `compare_candidate_distribution.py` | Pre-submit safety |
 | `generate_lgbm_submission.py` | LGBM grid |
@@ -295,8 +295,18 @@ Script: `scripts/cache_ordinal_probabilities.py --feature-set hybrid_season` →
 | File | Blend | Offline gate vs 0.8088 | Submit? |
 |------|-------|------------------------|---------|
 | `prob_blend_recycle8088_season_ord08.csv` | 92% soft(8088) + 8% season-ordinal | 0.8103 | Gated safe but **LB worse**; stop season-ordinal prob branch. |
+| `prob_blend_recycle8088_blackout_ord07.csv` | 93% soft(8088) + 7% blackout-ordinal | 0.8135 | Gated safe but **LB much worse**; stop blackout-ordinal prob branch. |
 
-### 8.5 Active probability caches
+### 8.5 Blackout-history ordinal (Jun 4 PM, submitted)
+
+Script: `cache_ordinal_probabilities.py --feature-set hybrid_blackout` → `ordinal_blackout_hybrid_best.npz`.
+
+| File | Blend | Offline gate | Public MAE | Decision |
+|------|-------|--------------|------------|----------|
+| `prob_blend_recycle8088_blackout_ord07.csv` | 93% + 7% | safe | **0.8135** | Submitted; stop branch. |
+| `prob_blend_recycle8088_blackout_ord08.csv` | 92% + 8% | safe | — | Not submitted (7% failed). |
+
+### 8.6 Active probability caches
 
 | Cache | Source |
 |-------|--------|
@@ -306,6 +316,7 @@ Script: `scripts/cache_ordinal_probabilities.py --feature-set hybrid_season` →
 | `soft_prob_best8088.npz` | `prob_blend_recycle8089_ord08` (0.8088) |
 | `ordinal_hybrid_best.npz` | hybrid-only ordinal |
 | `ordinal_season_hybrid_best.npz` | hybrid + same-season ordinal |
+| `ordinal_blackout_hybrid_best.npz` | hybrid + blackout history (prob branch stopped @ 0.8135) |
 
 **Reproduce current best:**
 ```bash
@@ -320,10 +331,10 @@ PYTHONPATH=. python scripts/blend_prob_submissions.py \
 
 ## 9. Next steps (prioritized)
 
-1. ~~Season-history ordinal prob blend~~ — submitted 0.8103; worse than 0.8088.  
-2. **Blackout-history ordinal cache** — only remaining orthogonal ordinal variant worth offline test.  
-3. **Re-cache hybrid ordinal** and re-blend 8% (sanity vs stale cache).  
-4. Hold slots after LB feedback; do not sweep 5–6% ordinal on current caches.  
+1. ~~Season-history ordinal prob blend~~ — 0.8103; worse than 0.8088.  
+2. ~~Blackout-history ordinal prob blend~~ — 0.8135 @ 7%; gated safe but LB failed. Stop orthogonal ordinal prob variants.  
+3. **Hold** current best `prob_blend_recycle8089_ord08.csv` @ **0.8088**; do not sweep 5–6% ordinal or re-blend stale hybrid ordinal without new hypothesis.  
+4. Next upside likely needs a **new mechanism** (not another ordinal feature cache at 7–8% into recycled anchor).  
 
 ---
 

@@ -15,6 +15,7 @@ from model.probability_blend import save_prob_cache
 SOURCE_BY_FEATURE_SET = {
     "hybrid": "ordinal_hybrid",
     "hybrid_season": "ordinal_season_hybrid",
+    "hybrid_blackout": "ordinal_blackout_hybrid",
 }
 
 
@@ -26,7 +27,10 @@ def parse_args():
         "--feature-set",
         choices=ORDINAL_FEATURE_SETS,
         default="hybrid",
-        help="hybrid = temporal only; hybrid_season = temporal + same-season features.",
+        help=(
+            "hybrid = temporal only; hybrid_season = temporal + same-season; "
+            "hybrid_blackout = temporal + blackout severity history."
+        ),
     )
     parser.add_argument("--max-windows-per-region", type=int, default=52)
     parser.add_argument("--output-dir", default="output/prob_cache")
