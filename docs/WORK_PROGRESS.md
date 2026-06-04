@@ -294,7 +294,7 @@ Script: `scripts/cache_ordinal_season_probabilities.py` → `ordinal_season_hybr
 
 | File | Blend | Offline gate vs 0.8088 | Submit? |
 |------|-------|------------------------|---------|
-| `prob_blend_recycle8088_season_ord08.csv` | 92% soft(8088) + 8% season-ordinal | corr=0.9995, diff=0.016, shift=0.010, **safe** | **ready** (not yet on LB) |
+| `prob_blend_recycle8088_season_ord08.csv` | 92% soft(8088) + 8% season-ordinal | 0.8103 | Gated safe but **LB worse**; stop season-ordinal prob branch. |
 
 ### 8.5 Active probability caches
 
@@ -320,8 +320,8 @@ PYTHONPATH=. python scripts/blend_prob_submissions.py \
 
 ## 9. Next steps (prioritized)
 
-1. **Submit** `prob_blend_recycle8088_season_ord08.csv` if pursuing season-ordinal signal (gated safe).  
-2. **Blackout-history ordinal cache** — second orthogonal feature family.  
+1. ~~Season-history ordinal prob blend~~ — submitted 0.8103; worse than 0.8088.  
+2. **Blackout-history ordinal cache** — only remaining orthogonal ordinal variant worth offline test.  
 3. **Re-cache hybrid ordinal** and re-blend 8% (sanity vs stale cache).  
 4. Hold slots after LB feedback; do not sweep 5–6% ordinal on current caches.  
 
