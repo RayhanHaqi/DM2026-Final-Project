@@ -1,6 +1,6 @@
 # DM2026 Final Project — Work Progress Summary
 
-**Last updated:** June 3, 2026  
+**Last updated:** June 4, 2026  
 **Competition:** [data-mining-2026-final-project](https://www.kaggle.com/competitions/data-mining-2026-final-project)  
 **Metric:** MAE (0–5, lower is better)  
 **Team:** Muhammad Rayhan Athaillah (313540001), NYCU Data Mining Spring 2026
@@ -11,14 +11,15 @@
 
 | Item | Value |
 |------|--------|
-| **Current best public MAE** | **0.8092** |
-| **Best file** | `output/daily_candidates/prob_blend_best83_ord17.csv` |
-| **Method** | Probability-space blend: 83% soft-wrapped season/LGBM anchor + 17% ordinal class probabilities |
-| **Previous best (Jun 2)** | 0.8112 — `lgbm_blend_w15_w15_20260531_133212.csv` |
-| **Improvement (Jun 3 sweep)** | −0.0020 vs 0.8112 anchor; −0.0009 vs first prob blend (92/8 @ 0.8101) |
-| **Gap to Baseline 3** | ~0.0036 (estimate; baseline 3 ≈ 0.8128) |
+| **Current best public MAE** | **0.8088** |
+| **Best file** | `output/daily_candidates/prob_blend_recycle8089_ord08.csv` |
+| **Method** | Recycled anchor: 92% soft wrap of 0.8089 prob-best + 8% hybrid ordinal |
+| **Previous best (Jun 3)** | 0.8092 — `prob_blend_best83_ord17.csv` |
+| **Improvement (Jun 4)** | −0.0004 vs 0.8092; −0.0024 vs Jun 2 LGBM anchor (0.8112) |
+| **Gap to Baseline 3** | ~0.0040 (estimate; baseline 3 ≈ 0.8128) |
 
-**Breakthrough (June 3):** Cached probability blending — convert regression anchor to class probabilities (mean-preserving), blend with real ordinal XGB threshold probabilities, convert back to 5-week predictions. Public LB improved monotonically from 5% → 17% ordinal weight; plateau at **17–18%**.
+**Breakthrough (June 3):** Probability-space blending with mean-preserving soft wrap + ordinal class probabilities.  
+**Breakthrough (June 4):** **Anchor recycling** — soft-wrap the current prob-best CSV and re-blend at **lower** ordinal % (7–8% vs 17% on first anchor).
 
 ---
 
@@ -44,7 +45,8 @@
 | May 30 | Season-tree 20% into tree+ordinal | 0.8120 | Same-season history |
 | **May 31** | **LGBM 15% into season anchor** | **0.8112** | `lgbm_blend_w15_w15_20260531_133212.csv` |
 | Jun 2 | Grid XGB 1% into best | 0.8112 | Tied; CV models overfit standalone |
-| **Jun 3** | **Prob blend 83/17** | **0.8092** | `prob_blend_best83_ord17.csv` |
+| Jun 3 | Prob blend 83/17 | 0.8092 | `prob_blend_best83_ord17.csv` |
+| **Jun 4** | **Recycle anchor 8% ordinal** | **0.8088** | `prob_blend_recycle8089_ord08.csv` |
 
 ### Failed / stopped branches (selected)
 
@@ -217,12 +219,12 @@ tree4+ordinal1.5%  →  +20% season_tree  →  season_w20 anchor (0.8120)
 
 ---
 
-## 6. Repository & git state (June 3)
+## 6. Repository & git state (June 4)
 
-- **Branch:** `main` (ahead of origin)  
-- **Committed:** `94acffc` pipelines (season, ordinal, severity, generate scripts)  
+- **Branch:** `main` (synced with origin after Phase 0 push)  
+- **Committed:** `2fc2013` prob-blend pipeline (`probability_blend.py`, cache/blend scripts, tests); `94acffc` season/ordinal pipelines  
 - **Local-only:** `AGENTS.md` (gitignored; experiment log)  
-- **Uncommitted (prob blend):** `model/probability_blend.py`, `scripts/cache_*`, `scripts/blend_prob_submissions.py`, `tests/test_probability_blend.py`, many candidates under `output/daily_candidates/`  
+- **Phase 0 (Jun 4):** Rebuild `output/prob_cache/*.npz`, gate June 4 submit queue under `output/daily_candidates/`  
 
 ### Core scripts inventory
 
@@ -259,18 +261,73 @@ tree4+ordinal1.5%  →  +20% season_tree  →  season_w20 anchor (0.8120)
 
 ---
 
-## 8. Next steps (prioritized)
+## 8. June 4 — full session log
 
-1. **Commit** prob-blend pipeline (`probability_blend.py`, scripts, tests).  
-2. **Micro-tune** 16.5–17.5% ordinal if submission slots remain.  
-3. **New anchor:** rebuild `soft_lgbm_best.npz` from `prob_blend_best83_ord17.csv`; re-sweep 5–12% ordinal.  
-4. **Combine signals:** prob-blend best + tiny scalar residual/season (only if distribution-safe).  
-5. **Update** `docs/PRELIMINARY_REPORT.md` (still cites 0.8113 in places).  
-6. **Log** new results in local `AGENTS.md` after each Kaggle feedback.  
+**Canonical best:** `prob_blend_recycle8089_ord08.csv` @ **0.8088**  
+**Strict gates:** corr ≥ 0.995, diff ≤ 0.035, shift ≤ 0.02
+
+### 8.1 Submitted (public MAE)
+
+| File | Blend | Public MAE | Decision |
+|------|-------|------------|----------|
+| `prob_blend_best825_ord175.csv` | 82.5% lgbm-soft + 17.5% ord | 0.8092 | Tie 83/17 |
+| `prob_blend_recycle8092_ord10.csv` | 90% wrap(0.8092) + 10% ord | 0.8089 | Recycle breakthrough |
+| **`prob_blend_recycle8089_ord08.csv`** | **92% wrap(0.8089) + 8% ord** | **0.8088** | **Current best** |
+| `prob_blend_recycle8089_ord09.csv` | 91% + 9% ord | 0.8089 | Worse than 8% |
+| `prob_blend_recycle8089_ord07.csv` | 93% + 7% ord | 0.8088 | Tie 8% |
+| `prob_blend_recycle8088_ord06.csv` | 94% wrap(0.8088) + 6% ord | 0.8090 | Below 7% hurts |
+
+### 8.2 Not submitted
+
+| File | Reason |
+|------|--------|
+| `prob_blend_recycle8089_ord12.csv` | Gate fail (shift 0.021) |
+| `prob_best_residual_w0025.csv` | Fails vs lgbm anchor (diff 0.050) |
+
+### 8.3 Recycle sweep summary (hybrid ordinal cache)
+
+On `soft_prob_best8089` anchor: **7–8%** → 0.8088; **6%** → 0.8090; **9–10%** → 0.8089.
+
+### 8.4 Season-history ordinal (offline, Jun 4 PM)
+
+Script: `scripts/cache_ordinal_season_probabilities.py` → `ordinal_season_hybrid_best.npz` (299 dims = hybrid + 5 season).
+
+| File | Blend | Offline gate vs 0.8088 | Submit? |
+|------|-------|------------------------|---------|
+| `prob_blend_recycle8088_season_ord08.csv` | 92% soft(8088) + 8% season-ordinal | corr=0.9995, diff=0.016, shift=0.010, **safe** | **ready** (not yet on LB) |
+
+### 8.5 Active probability caches
+
+| Cache | Source |
+|-------|--------|
+| `soft_lgbm_best.npz` | `lgbm_blend_w15` (0.8112 scalar anchor) |
+| `soft_prob_best8092.npz` | `prob_blend_best83_ord17` (0.8092) |
+| `soft_prob_best8089.npz` | `prob_blend_recycle8092_ord10` (0.8089) |
+| `soft_prob_best8088.npz` | `prob_blend_recycle8089_ord08` (0.8088) |
+| `ordinal_hybrid_best.npz` | hybrid-only ordinal |
+| `ordinal_season_hybrid_best.npz` | hybrid + same-season ordinal |
+
+**Reproduce current best:**
+```bash
+PYTHONPATH=. python scripts/cache_submission_soft_probs.py \
+  --submission output/daily_candidates/prob_blend_recycle8092_ord10.csv \
+  --output-path output/prob_cache/soft_prob_best8089.npz
+PYTHONPATH=. python scripts/blend_prob_submissions.py \
+  --cache output/prob_cache/soft_prob_best8089.npz:0.92 \
+  --cache output/prob_cache/ordinal_hybrid_best.npz:0.08 \
+  --output-path output/daily_candidates/prob_blend_recycle8089_ord08.csv
+```
+
+## 9. Next steps (prioritized)
+
+1. **Submit** `prob_blend_recycle8088_season_ord08.csv` if pursuing season-ordinal signal (gated safe).  
+2. **Blackout-history ordinal cache** — second orthogonal feature family.  
+3. **Re-cache hybrid ordinal** and re-blend 8% (sanity vs stale cache).  
+4. Hold slots after LB feedback; do not sweep 5–6% ordinal on current caches.  
 
 ---
 
-## 9. Submission checklist
+## 10. Submission checklist
 
 ```bash
 # Validate format
@@ -278,19 +335,19 @@ PYTHONPATH=. python -c "
 from model import experiments
 import pandas as pd
 s = pd.read_csv('data/sample_submission.csv')
-sub = pd.read_csv('output/daily_candidates/prob_blend_best83_ord17.csv')
+sub = pd.read_csv('output/daily_candidates/prob_blend_recycle8089_ord08.csv')
 print(experiments.validate_submission(sub, s))
 "
 
-# Submit
-kaggle competitions submit -c data-mining-2026-final-project \
-  -f output/daily_candidates/prob_blend_best83_ord17.csv \
-  -m "prob blend 83/17 best"
+# Submit (example — season candidate ready)
+# kaggle competitions submit -c data-mining-2026-final-project \
+#   -f output/daily_candidates/prob_blend_recycle8088_season_ord08.csv \
+#   -m "recycle 8088 + 8% season ordinal"
 ```
 
 ---
 
-## 10. Environment
+## 11. Environment
 
 - Python 3.10, numpy, pandas, scikit-learn, xgboost, lightgbm  
 - `pip install -e .` for package layout  
@@ -299,7 +356,7 @@ kaggle competitions submit -c data-mining-2026-final-project \
 
 ---
 
-## 11. Documentation map
+## 12. Documentation map
 
 | File | Role |
 |------|------|
@@ -311,7 +368,7 @@ kaggle competitions submit -c data-mining-2026-final-project \
 
 ---
 
-## 12. Contact
+## 13. Contact
 
 - **Instructor:** Jyun-Yu Jiang — wu80623@gmail.com (subject: "DM final")  
 - **Competition:** https://www.kaggle.com/competitions/data-mining-2026-final-project  
