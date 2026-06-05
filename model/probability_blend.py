@@ -71,9 +71,138 @@ def blend_class_probs(prob_list, weights):
     return np.clip(blended / row_sums, 0.0, 1.0)
 
 
-def class_probs_to_predictions(class_probs):
-    """Convert (n_samples, n_weeks, 6) class probabilities to (n_samples, n_weeks) scores."""
-    return expected_values_from_week_class_probs(class_probs)
+def posterior_quantile_from_class_probs(class_probs, quantile=0.5):
+    """Map class probabilities to a score via linear interpolation on scores 0..5.
+
+    quantile=0.5 is the posterior median, which minimizes MAE when Y is discrete on
+    {0,..,5} and the action may be continuous in [0, 5].
+    """
+    arr = np.clip(np.asarray(class_probs, dtype=float), 0.0, 1.0)
+    if arr.ndim != 3 or arr.shape[-1] != 6:
+        raise ValueError("class_probs must have shape (n_samples, n_weeks, 6)")
+
+    row_sums = arr.sum(axis=-1, keepdims=True)
+    row_sums = np.where(row_sums > 0, row_sums, 1.0)
+    arr = arr / row_sums
+
+    q = float(np.clip(quantile, 0.0, 1.0))
+    flat = arr.reshape(-1, 6)
+    scores = np.arange(6, dtype=float)
+    out = np.empty(flat.shape[0], dtype=float)
+
+    for row_idx, probs in enumerate(flat):
+        cdf = probs.cumsum()
+        if q <= 0.0:
+            out[row_idx] = 0.0
+            continue
+        if q >= 1.0:
+            out[row_idx] = 5.0
+            continue
+
+        idx = int(np.searchsorted(cdf, q, side="left"))
+        idx = min(max(idx, 0), 5)
+        if idx == 0:
+            out[row_idx] = 0.0
+        elif cdf[idx] <= cdf[idx - 1] + 1e-12:
+            out[row_idx] = scores[idx]
+        else:
+            frac = (q - cdf[idx - 1]) / (cdf[idx] - cdf[idx - 1])
+            out[row_idx] = scores[idx - 1] + frac * (scores[idx] - scores[idx - 1])
+
+    return np.clip(out.reshape(arr.shape[0], arr.shape[1]), 0.0, 5.0)
+
+
+def summarize_class_prob_mass(class_probs):
+    """Mean class masses and P(Y>=k) averaged over regions and weeks."""
+    arr = np.asarray(class_probs, dtype=float)
+    if arr.ndim != 3 or arr.shape[-1] != 6:
+        raise ValueError("class_probs must have shape (n_samples, n_weeks, 6)")
+
+    row_sums = arr.sum(axis=-1, keepdims=True)
+    row_sums = np.where(row_sums > 0, row_sums, 1.0)
+    normed = arr / row_sums
+    mean_mass = normed.mean(axis=(0, 1))
+    cum = np.cumsum(mean_mass)
+    survival = {f"p_ge_{k}": float(1.0 - cum[k - 1]) for k in range(1, 6)}
+    return {
+        "mean_class_mass": {str(i): float(mean_mass[i]) for i in range(6)},
+        **survival,
+    }
+
+
+def decoder_global_mean(class_probs, decision="mean", quantile=0.5):
+    """Global mean of decoded scores (diagnostic only)."""
+    preds = class_probs_to_predictions(class_probs, decision=decision, quantile=quantile)
+    return float(np.mean(preds))
+
+
+def diagnose_prob_blend_decoders(cache_specs, target_region_ids, quantiles=(0.48, 0.5, 0.52)):
+    """Compare mean vs quantile decoders on each cache and the weighted blend.
+
+    Median/quantile are invalid on soft_probs_from_regression caches (mean-preserving
+    encoding). Use this before submitting non-mean decision rules.
+    """
+    parsed = parse_weighted_cache_specs(cache_specs)
+    target_region_ids = [str(rid) for rid in target_region_ids]
+    layers = []
+
+    loaded = []
+    for path, weight in parsed:
+        item = load_prob_cache(path)
+        aligned = reorder_class_probs(
+            item["class_probs"], item["region_ids"], target_region_ids
+        )
+        loaded.append((path, weight, item["source"], aligned))
+        row = {
+            "layer": "cache",
+            "path": path,
+            "weight": weight,
+            "source": item["source"],
+            "mass": summarize_class_prob_mass(aligned),
+            "decode_mean": decoder_global_mean(aligned, decision="mean"),
+            "decode_median": decoder_global_mean(aligned, decision="median"),
+        }
+        for q in quantiles:
+            row[f"decode_q{int(round(q * 100)):02d}"] = decoder_global_mean(
+                aligned, decision="quantile", quantile=q
+            )
+        layers.append(row)
+
+    weights = [weight for _, weight, _, _ in loaded]
+    aligned_probs = [aligned for _, _, _, aligned in loaded]
+    blended = blend_class_probs(aligned_probs, weights)
+    blend_row = {
+        "layer": "blend",
+        "path": "+".join(f"{os.path.basename(p)}:{w}" for p, w, _, _ in loaded),
+        "weight": 1.0,
+        "source": "blend",
+        "mass": summarize_class_prob_mass(blended),
+        "decode_mean": decoder_global_mean(blended, decision="mean"),
+        "decode_median": decoder_global_mean(blended, decision="median"),
+    }
+    for q in quantiles:
+        blend_row[f"decode_q{int(round(q * 100)):02d}"] = decoder_global_mean(
+            blended, decision="quantile", quantile=q
+        )
+    layers.append(blend_row)
+    return layers
+
+
+def class_probs_to_predictions(class_probs, decision="mean", quantile=0.5):
+    """Convert (n_samples, n_weeks, 6) class probabilities to (n_samples, n_weeks) scores.
+
+    decision:
+      - mean: expected value (default; correct for soft_probs_from_regression caches)
+      - median: posterior quantile q=0.5 (only valid for calibrated posteriors)
+      - quantile: linear quantile on scores 0..5 (only valid for calibrated posteriors)
+    """
+    if decision == "mean":
+        return expected_values_from_week_class_probs(class_probs)
+    if decision == "median":
+        return posterior_quantile_from_class_probs(class_probs, 0.5)
+    if decision == "quantile":
+        return posterior_quantile_from_class_probs(class_probs, quantile)
+    raise ValueError(f"decision must be mean, median, or quantile; got {decision!r}")
 
 
 def _encode_metadata_value(value):
@@ -173,12 +302,18 @@ def blend_prob_caches(cache_specs, target_region_ids):
     return blended, target_region_ids, loaded
 
 
-def write_prob_blend_submission(cache_specs, sample_path, output_path):
+def write_prob_blend_submission(
+    cache_specs,
+    sample_path,
+    output_path,
+    decision="mean",
+    quantile=0.5,
+):
     """Blend caches and write a submission CSV in sample_submission row order."""
     sample = pd.read_csv(sample_path)
     target_region_ids = sample.iloc[:, 0].tolist()
     blended, region_ids, sources = blend_prob_caches(cache_specs, target_region_ids)
-    preds = class_probs_to_predictions(blended)
+    preds = class_probs_to_predictions(blended, decision=decision, quantile=quantile)
     sub = experiments.build_submission(region_ids, preds, sample)
     ok, messages = experiments.validate_submission(sub, sample)
     if not ok:

@@ -9,11 +9,14 @@ from model.probability_blend import (
     blend_class_probs,
     blend_prob_caches,
     class_probs_to_predictions,
+    diagnose_prob_blend_decoders,
     load_prob_cache,
     parse_weighted_cache_specs,
+    posterior_quantile_from_class_probs,
     reorder_class_probs,
     save_prob_cache,
     soft_probs_from_regression,
+    summarize_class_prob_mass,
     write_prob_blend_submission,
 )
 
@@ -26,6 +29,42 @@ class ProbabilityBlendTests(unittest.TestCase):
     self.assertAlmostEqual(expected, 2.3)
     self.assertAlmostEqual(probs[2], 0.7)
     self.assertAlmostEqual(probs[3], 0.3)
+
+  def test_soft_probs_ev_roundtrip_on_grid(self):
+    values = np.linspace(0.0, 5.0, 26)
+    probs = soft_probs_from_regression(values)
+    decoded = class_probs_to_predictions(probs, decision="mean")
+    np.testing.assert_allclose(decoded.ravel(), values, rtol=0, atol=1e-12)
+
+  def test_quantile_q052_shrinks_soft_probs_below_one(self):
+    values = np.linspace(0.0, 1.0, 11)
+    probs = soft_probs_from_regression(values)
+    mean_decoded = class_probs_to_predictions(probs, decision="mean").ravel()
+    q052 = class_probs_to_predictions(probs, decision="quantile", quantile=0.52).ravel()
+    np.testing.assert_allclose(mean_decoded, values, atol=1e-12)
+    self.assertTrue(np.all(q052 <= mean_decoded + 1e-12))
+    self.assertGreater(float(mean_decoded.mean() - q052.mean()), 0.2)
+
+  def test_diagnose_prob_blend_decoders_smoke(self):
+    probs = soft_probs_from_regression(np.array([0.5, 2.0, 4.0]))
+    with tempfile.TemporaryDirectory() as tmpdir:
+      path = os.path.join(tmpdir, "soft.npz")
+      save_prob_cache(path, probs, ["R1", "R2", "R3"], source="soft")
+      layers = diagnose_prob_blend_decoders(
+          [f"{path}:1.0"],
+          ["R1", "R2", "R3"],
+          quantiles=(0.52,),
+      )
+    self.assertEqual(len(layers), 2)
+    blend = layers[-1]
+    self.assertGreater(blend["decode_mean"] - blend["decode_q52"], 0.0)
+
+  def test_summarize_class_prob_mass_uniform(self):
+    probs = np.ones((2, 1, 6), dtype=float) / 6.0
+    summary = summarize_class_prob_mass(probs)
+    for i in range(6):
+      self.assertAlmostEqual(summary["mean_class_mass"][str(i)], 1.0 / 6.0, places=6)
+    self.assertAlmostEqual(summary["p_ge_1"], 5.0 / 6.0, places=6)
 
   def test_soft_probs_from_regression_temperature_spreads_mass(self):
     probs = soft_probs_from_regression(np.array([2.0]), temperature=0.5)[0, 0]
@@ -53,6 +92,35 @@ class ProbabilityBlendTests(unittest.TestCase):
     preds = class_probs_to_predictions(class_probs)
 
     np.testing.assert_allclose(preds, [[1.5, 4.0]])
+
+  def test_posterior_median_differs_from_mean_on_skewed_probs(self):
+    class_probs = np.zeros((1, 1, 6), dtype=float)
+    class_probs[0, 0, 0] = 0.6
+    class_probs[0, 0, 1] = 0.1
+    class_probs[0, 0, 2] = 0.1
+    class_probs[0, 0, 5] = 0.2
+
+    mean_pred = class_probs_to_predictions(class_probs, decision="mean")
+    median_pred = class_probs_to_predictions(class_probs, decision="median")
+
+    self.assertAlmostEqual(mean_pred[0, 0], 1.3)
+    self.assertAlmostEqual(median_pred[0, 0], 0.0)
+
+  def test_posterior_quantile_interpolates_between_classes(self):
+    probs = np.array([0.1, 0.2, 0.7, 0.0, 0.0, 0.0], dtype=float)
+    q50 = posterior_quantile_from_class_probs(probs.reshape(1, 1, 6), quantile=0.5)[0, 0]
+    self.assertGreater(q50, 1.0)
+    self.assertLess(q50, 2.0)
+
+  def test_quantile_q048_below_median_on_zero_heavy(self):
+    probs = np.zeros(6, dtype=float)
+    probs[0] = 0.7
+    probs[1] = 0.2
+    probs[2] = 0.1
+    shaped = probs.reshape(1, 1, 6)
+    q48 = posterior_quantile_from_class_probs(shaped, quantile=0.48)[0, 0]
+    q50 = posterior_quantile_from_class_probs(shaped, quantile=0.5)[0, 0]
+    self.assertLessEqual(q48, q50)
 
   def test_prob_cache_roundtrip(self):
     class_probs = np.zeros((3, 5, 6), dtype=float)

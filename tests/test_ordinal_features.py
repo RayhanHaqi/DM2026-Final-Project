@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 
 from model.ordinal_features import ORDINAL_FEATURE_SETS, load_ordinal_train_test
@@ -87,10 +88,50 @@ class OrdinalFeaturesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "blackout row mismatch"):
             load_ordinal_train_test("train.csv", "test.csv", feature_set="hybrid_blackout")
 
+    @patch("model.ordinal_features.pd.read_csv")
+    @patch(
+        "model.ordinal_features.severity_history.build_test_blackout_history_features_from_frame"
+    )
+    @patch(
+        "model.ordinal_features.severity_history.build_train_blackout_history_features_from_frame"
+    )
+    @patch("model.ordinal_features.temporal_features.load_temporal_test_data")
+    @patch("model.ordinal_features.temporal_features.load_temporal_train_data")
+    def test_history_only_uses_history_columns_without_hybrid(
+        self,
+        mock_train,
+        mock_test,
+        mock_train_blackout,
+        mock_test_blackout,
+        mock_read_csv,
+    ):
+        mock_train.return_value = (
+            pd.DataFrame({"a": [1, 2]}),
+            np.array([[0, 1, 0, 0, 0], [1, 0, 0, 0, 0]]),
+            ["R1", "R2"],
+        )
+        mock_test.return_value = (pd.DataFrame({"a": [3]}), ["R1"])
+        mock_read_csv.return_value = pd.DataFrame({"region_id": ["R1"], "score": [1.0]})
+        mock_train_blackout.return_value = pd.DataFrame(
+            {"score_history_mean": [0.1, 0.2], "score_history_count": [1.0, 2.0]}
+        )
+        mock_test_blackout.return_value = pd.DataFrame(
+            {"score_history_mean": [0.3], "score_history_count": [3.0]}
+        )
+
+        X_train, y_train, _, X_test, _ = load_ordinal_train_test(
+            "train.csv", "test.csv", feature_set="history_only"
+        )
+
+        self.assertNotIn("a", X_train.columns)
+        self.assertIn("history__score_history_mean", X_train.columns)
+        self.assertEqual(len(X_train), len(y_train))
+
     def test_feature_sets_tuple_documents_supported_modes(self):
         self.assertIn("hybrid", ORDINAL_FEATURE_SETS)
         self.assertIn("hybrid_season", ORDINAL_FEATURE_SETS)
         self.assertIn("hybrid_blackout", ORDINAL_FEATURE_SETS)
+        self.assertIn("history_only", ORDINAL_FEATURE_SETS)
 
 
 if __name__ == "__main__":

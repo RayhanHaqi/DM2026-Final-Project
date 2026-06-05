@@ -1,6 +1,6 @@
 # DM2026 Final Project — Work Progress Summary
 
-**Last updated:** June 4, 2026  
+**Last updated:** June 4, 2026 (evening — substitution prob results)  
 **Competition:** [data-mining-2026-final-project](https://www.kaggle.com/competitions/data-mining-2026-final-project)  
 **Metric:** MAE (0–5, lower is better)  
 **Team:** Muhammad Rayhan Athaillah (313540001), NYCU Data Mining Spring 2026
@@ -60,6 +60,9 @@
 | Historical severity standalone | 0.878 | Too different from anchor |
 | Seed42 GRU fine-tuning | ~0.8167 plateau | Marginal / wrong direction |
 | Stale Gaussian soft prob cache | — | Mean shift ~+0.1; do not use |
+| Substitution season-soft prob (2–3%) | 0.8088 tie | Gated safe; no LB gain |
+| Substitution history-only ordinal (2%) | 0.8118 | Gated safe; LB failed |
+| History residual scalar 0.25% | 0.8088 tie | Train proxy ≠ test anchor |
 
 ---
 
@@ -276,6 +279,10 @@ tree4+ordinal1.5%  →  +20% season_tree  →  season_w20 anchor (0.8120)
 | `prob_blend_recycle8089_ord09.csv` | 91% + 9% ord | 0.8089 | Worse than 8% |
 | `prob_blend_recycle8089_ord07.csv` | 93% + 7% ord | 0.8088 | Tie 8% |
 | `prob_blend_recycle8088_ord06.csv` | 94% wrap(0.8088) + 6% ord | 0.8090 | Below 7% hurts |
+| `prob_subst_season_900_802_full.csv` | 90% soft8089 + 8% hybrid_ord + 2% season_scalar_soft | 0.8088 | Tie; stop season substitution branch |
+| `prob_subst_season_890_803_full.csv` | 89% + 8% + 3% season_scalar_soft | 0.8088 | Tie; stop season substitution branch |
+| `hist_residual_w0p25_20260604.csv` | 8089 + 0.25% history residual | 0.8088 | Tie; stop history residual branch |
+| `prob_subst_history_920_602_full.csv` | 92% soft8089 + 6% hybrid_ord + 2% history_only_ord | 0.8118 | Worse; stop history-only ordinal substitution |
 
 ### 8.2 Not submitted
 
@@ -295,6 +302,7 @@ Script: `scripts/cache_ordinal_probabilities.py --feature-set hybrid_season` →
 | File | Blend | Offline gate vs 0.8088 | Submit? |
 |------|-------|------------------------|---------|
 | `prob_blend_recycle8088_season_ord08.csv` | 92% soft(8088) + 8% season-ordinal | 0.8103 | Gated safe but **LB worse**; stop season-ordinal prob branch. |
+| `prob_blend_8089_mae_ord03.csv` | 97% soft(8089) + 3% MAE-tree OOF-cal | 0.8098 | Gated safe; **LB worse**; stop MAE-tree prob branch. |
 | `prob_blend_recycle8088_blackout_ord07.csv` | 93% soft(8088) + 7% blackout-ordinal | 0.8135 | Gated safe but **LB much worse**; stop blackout-ordinal prob branch. |
 
 ### 8.5 Blackout-history ordinal (Jun 4 PM, submitted)
@@ -306,7 +314,46 @@ Script: `cache_ordinal_probabilities.py --feature-set hybrid_blackout` → `ordi
 | `prob_blend_recycle8088_blackout_ord07.csv` | 93% + 7% | safe | **0.8135** | Submitted; stop branch. |
 | `prob_blend_recycle8088_blackout_ord08.csv` | 92% + 8% | safe | — | Not submitted (7% failed). |
 
-### 8.6 Active probability caches
+### 8.6 MAE-tree OOF-cal prob (Jun 4 PM, submitted)
+
+Script: `scripts/cache_mae_tree_oof_probs.py` → `mae_lgbm_hybrid_oofcal_best.npz` (OOF MAE 0.330).
+
+| File | Blend | Offline gate | Public MAE | Decision |
+|------|-------|--------------|------------|----------|
+| `prob_blend_8089_mae_ord03.csv` | 97% + 3% | safe | **0.8098** | Submitted; stop branch. |
+| `prob_blend_8089_mae_ord04.csv` | 96% + 4% | safe | — | Not submitted. |
+| `prob_blend_8089_mae_ord05.csv` | 95% + 5% | safe | — | Not submitted. |
+
+### 8.8 Substitution prob blends (Jun 4 evening, submitted)
+
+Script: `scripts/generate_substitution_prob_submissions.py` + `scripts/run_substitution_prob_pipeline.sh`.
+
+Caches: `soft_season_scalar_best.npz` (from `season_w20_w20_20260530_122421.csv`), `ordinal_history_only_best.npz` (`feature_set=history_only`, 17 dims).
+
+| File | Blend | Offline gate | Public MAE | Decision |
+|------|-------|--------------|------------|----------|
+| `prob_subst_season_900_802_full.csv` | 90% soft8089 + 8% hybrid_ord + 2% season_soft | safe (diff 0.0024) | **0.8088** | Submitted; **tied** best; stop season substitution |
+| `prob_subst_season_890_803_full.csv` | 89% + 8% + 3% season_soft | safe (diff 0.0036) | **0.8088** | Submitted; **tied**; stop season substitution |
+| `prob_subst_history_920_602_full.csv` | 92% + 6% hybrid_ord + 2% history_only_ord | safe (diff 0.016) | **0.8118** | Submitted; **worse**; stop history-only ordinal substitution |
+| `prob_subst_history_910_603_full.csv` | 91% + 6% + 3% history_only_ord | unsafe (shift 0.023) | — | Not submitted |
+
+**Takeaway:** Three-cache **substitution** (keep hybrid_ord, swap in tiny third source) does not beat recycle anchor. Season scalar soft ties; history-only ordinal fails on LB despite passing gate at 2%.
+
+### 8.9 MAE decision rule (Jun 4 evening, submitted)
+
+Same 92/8 caches as recycle best; only change is **posterior decision** (`quantile q=0.52` instead of class-prob mean). Script: `scripts/generate_mae_decision_submissions.py`.
+
+| File | Decision | Offline vs anchor | Public MAE | Decision |
+|------|----------|-------------------|------------|----------|
+| `prob_mae_mean_8089_ord08_full.csv` | mean | identical (corr 1.0) | — | Sanity check only |
+| `prob_mae_q052_8089_ord08_full.csv` | q=0.52 | diff 0.41, mean pred 0.47 | **0.9206** | Submitted; **catastrophic**; stop all median/quantile branches |
+| `prob_mae_median_8089_ord08_full.csv` | median | diff 0.43 | — | Not submitted |
+
+**Takeaway:** MAE-optimal quantile/median on blended class probs is wrong for this pipeline — predictions collapse low. Do not spend more slots on q045–q052 sweeps. Next high-EV: OOF temperature-calibrated hybrid ordinal (not yet built).
+
+**Tooling (Jun 5):** `scripts/diagnose_prob_cache_decoders.py`, `scripts/kaggle_submission_ledger.py`, `scripts/submit_to_kaggle.sh` (gate + duplicate guard). Gate now includes `global_mean_shift` ≤ 0.05. `generate_mae_decision_submissions.py` requires `--allow-invalid-decoder` for non-mean.
+
+### 8.7 Active probability caches
 
 | Cache | Source |
 |-------|--------|
@@ -317,6 +364,9 @@ Script: `cache_ordinal_probabilities.py --feature-set hybrid_blackout` → `ordi
 | `ordinal_hybrid_best.npz` | hybrid-only ordinal |
 | `ordinal_season_hybrid_best.npz` | hybrid + same-season ordinal |
 | `ordinal_blackout_hybrid_best.npz` | hybrid + blackout history (prob branch stopped @ 0.8135) |
+| `mae_lgbm_hybrid_oofcal_best.npz` | LGBM MAE + OOF residual bins (prob branch stopped @ 0.8098) |
+| `soft_season_scalar_best.npz` | soft wrap of `season_w20_w20_20260530_122421.csv` (substitution stopped @ tie) |
+| `ordinal_history_only_best.npz` | history-only ordinal (substitution stopped @ 0.8118) |
 
 **Reproduce current best:**
 ```bash
@@ -332,9 +382,22 @@ PYTHONPATH=. python scripts/blend_prob_submissions.py \
 ## 9. Next steps (prioritized)
 
 1. ~~Season-history ordinal prob blend~~ — 0.8103; worse than 0.8088.  
-2. ~~Blackout-history ordinal prob blend~~ — 0.8135 @ 7%; gated safe but LB failed. Stop orthogonal ordinal prob variants.  
-3. **Hold** current best `prob_blend_recycle8089_ord08.csv` @ **0.8088**; do not sweep 5–6% ordinal or re-blend stale hybrid ordinal without new hypothesis.  
-4. Next upside likely needs a **new mechanism** (not another ordinal feature cache at 7–8% into recycled anchor).  
+2. ~~Blackout-history ordinal prob blend~~ — 0.8135 @ 7%; gated safe but LB failed.  
+3. ~~MAE-tree OOF-cal prob blend~~ — 0.8098 @ 3%; gated safe but LB failed.  
+4. ~~Substitution season-soft (2–3%)~~ — 0.8088 tie; gated safe, no LB gain.  
+5. ~~Substitution history-only ordinal (2%)~~ — 0.8118; stop branch.  
+6. ~~History residual scalar 0.25%~~ — 0.8088 tie.  
+7. ~~MAE decision quantile (q=0.52) on 92/8 blend~~ — **0.9206**; stop median/quantile decision branch.  
+8. **Hold** current best `prob_blend_recycle8089_ord08.csv` @ **0.8088**.  
+9. ~~**OOF-calibrated hybrid ordinal**~~ — submitted `prob_blend_8089_oofcal_ord08_full.csv` @ **0.8091** (gate safe, OOF 0.378→0.349); **worse than 0.8088**; stop OOF-cal ordinal at 8%.
+10. **Hold** best `prob_blend_recycle8089_ord08.csv` @ **0.8088**. No more median/quantile, substitutions, or OOF-cal ordinal sweeps without new signal.
+
+**OOF ordinal calibration commands:**
+```bash
+bash scripts/run_oof_ordinal_calibration_pipeline.sh smoke   # fast; OOF MAE check only
+bash scripts/run_oof_ordinal_calibration_pipeline.sh full    # ~30–60 min; produces prob_blend_8089_oofcal_ord08_full.csv
+bash scripts/submit_to_kaggle.sh output/daily_candidates/prob_blend_8089_oofcal_ord08_full.csv "92/8 soft8089 + 8% OOF-cal hybrid ord"
+```  
 
 ---
 

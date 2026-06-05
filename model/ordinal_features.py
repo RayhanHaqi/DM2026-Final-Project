@@ -5,7 +5,7 @@ import pandas as pd
 from model import severity_history, temporal_features
 from model.same_season import build_train_same_season_features, build_test_same_season_features
 
-ORDINAL_FEATURE_SETS = ("hybrid", "hybrid_season", "hybrid_blackout")
+ORDINAL_FEATURE_SETS = ("hybrid", "hybrid_season", "hybrid_blackout", "history_only")
 BLACKOUT_WINDOW_DAYS = 91
 
 
@@ -47,6 +47,33 @@ def load_ordinal_train_test(
         return X_train, y_train, train_regions, X_test, test_regions
 
     train_df = pd.read_csv(train_path)
+
+    if feature_set == "history_only":
+        _, y_train, train_regions = temporal_features.load_temporal_train_data(
+            train_path,
+            max_windows_per_region=max_windows_per_region,
+            feature_set="hybrid",
+        )
+        _, test_regions = temporal_features.load_temporal_test_data(
+            test_path, feature_set="hybrid"
+        )
+        X_train = severity_history.build_train_blackout_history_features_from_frame(
+            train_df,
+            max_windows_per_region=max_windows_per_region,
+            window_days=BLACKOUT_WINDOW_DAYS,
+        )
+        X_test = severity_history.build_test_blackout_history_features_from_frame(
+            train_df,
+            test_regions,
+            window_days=BLACKOUT_WINDOW_DAYS,
+        )
+        if len(X_train) != len(y_train):
+            raise ValueError(
+                f"history_only row mismatch: history {len(X_train)} vs labels {len(y_train)}"
+            )
+        X_train = X_train.add_prefix("history__")
+        X_test = X_test.add_prefix("history__")
+        return X_train, y_train, train_regions, X_test, test_regions
 
     if feature_set == "hybrid_season":
         test_df = pd.read_csv(test_path)
