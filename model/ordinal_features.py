@@ -5,7 +5,13 @@ import pandas as pd
 from model import severity_history, temporal_features
 from model.same_season import build_train_same_season_features, build_test_same_season_features
 
-ORDINAL_FEATURE_SETS = ("hybrid", "hybrid_season", "hybrid_blackout", "history_only")
+ORDINAL_FEATURE_SETS = (
+    "hybrid",
+    "hybrid_season",
+    "hybrid_blackout",
+    "hybrid_full",
+    "history_only",
+)
 BLACKOUT_WINDOW_DAYS = 91
 
 
@@ -75,7 +81,7 @@ def load_ordinal_train_test(
         X_test = X_test.add_prefix("history__")
         return X_train, y_train, train_regions, X_test, test_regions
 
-    if feature_set == "hybrid_season":
+    if feature_set in ("hybrid_season", "hybrid_full"):
         test_df = pd.read_csv(test_path)
         season_train = build_train_same_season_features(
             train_df, max_windows_per_region=max_windows_per_region
@@ -83,7 +89,8 @@ def load_ordinal_train_test(
         season_test = build_test_same_season_features(train_df, test_df)
         X_train = _concat_aligned_features(X_train, season_train, "season")
         X_test = _concat_aligned_features(X_test, season_test, "season")
-        return X_train, y_train, train_regions, X_test, test_regions
+        if feature_set == "hybrid_season":
+            return X_train, y_train, train_regions, X_test, test_regions
 
     train_history = severity_history.build_train_blackout_history_features_from_frame(
         train_df,

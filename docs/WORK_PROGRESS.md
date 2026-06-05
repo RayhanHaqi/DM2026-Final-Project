@@ -1,6 +1,6 @@
 # DM2026 Final Project — Work Progress Summary
 
-**Last updated:** June 4, 2026 (evening — substitution prob results)  
+**Last updated:** June 5, 2026 (hybrid_full ordinal + recycle2 LB results)  
 **Competition:** [data-mining-2026-final-project](https://www.kaggle.com/competitions/data-mining-2026-final-project)  
 **Metric:** MAE (0–5, lower is better)  
 **Team:** Muhammad Rayhan Athaillah (313540001), NYCU Data Mining Spring 2026
@@ -16,6 +16,7 @@
 | **Method** | Recycled anchor: 92% soft wrap of 0.8089 prob-best + 8% hybrid ordinal |
 | **Previous best (Jun 3)** | 0.8092 — `prob_blend_best83_ord17.csv` |
 | **Improvement (Jun 4)** | −0.0004 vs 0.8092; −0.0024 vs Jun 2 LGBM anchor (0.8112) |
+| **Gap to target 0.8056** | **0.0032** (competition/course baseline to beat) |
 | **Gap to Baseline 3** | ~0.0040 (estimate; baseline 3 ≈ 0.8128) |
 
 **Breakthrough (June 3):** Probability-space blending with mean-preserving soft wrap + ordinal class probabilities.  
@@ -47,6 +48,8 @@
 | Jun 2 | Grid XGB 1% into best | 0.8112 | Tied; CV models overfit standalone |
 | Jun 3 | Prob blend 83/17 | 0.8092 | `prob_blend_best83_ord17.csv` |
 | **Jun 4** | **Recycle anchor 8% ordinal** | **0.8088** | `prob_blend_recycle8089_ord08.csv` |
+| Jun 5 | hybrid_full ordinal 3% | 0.8109 | Gate safe; LB worse — stop branch |
+| Jun 5 | recycle2 97/3 hybrid ord | 0.8089 | Small regression — stop |
 
 ### Failed / stopped branches (selected)
 
@@ -63,6 +66,12 @@
 | Substitution season-soft prob (2–3%) | 0.8088 tie | Gated safe; no LB gain |
 | Substitution history-only ordinal (2%) | 0.8118 | Gated safe; LB failed |
 | History residual scalar 0.25% | 0.8088 tie | Train proxy ≠ test anchor |
+| OOF-cal hybrid ordinal 8% | 0.8091 | Gate safe; OOF MAE improved; mean shift down |
+| MAE quantile decoder q=0.52 | 0.9206 | Invalid decoder on soft cache |
+| Scalar temporal holdout cal | 0.8112 | Gate safe; holdout proxy improved; LB worse |
+| hybrid_full ordinal 3% (`prob_blend_8089_fullord03`) | 0.8109 | Gate safe diff 0.020; LB +0.0021 vs best |
+| hybrid_full recycle (wrap 3% + 2%) | 0.8123 | Gate safe diff 0.025; LB +0.0035 vs best |
+| recycle2 97/3 on 0.8088 anchor | 0.8089 | Gate safe; no improvement |
 
 ---
 
@@ -349,9 +358,32 @@ Same 92/8 caches as recycle best; only change is **posterior decision** (`quanti
 | `prob_mae_q052_8089_ord08_full.csv` | q=0.52 | diff 0.41, mean pred 0.47 | **0.9206** | Submitted; **catastrophic**; stop all median/quantile branches |
 | `prob_mae_median_8089_ord08_full.csv` | median | diff 0.43 | — | Not submitted |
 
-**Takeaway:** MAE-optimal quantile/median on blended class probs is wrong for this pipeline — predictions collapse low. Do not spend more slots on q045–q052 sweeps. Next high-EV: OOF temperature-calibrated hybrid ordinal (not yet built).
+**Takeaway:** MAE-optimal quantile/median on blended class probs is wrong for this pipeline — predictions collapse low. Do not spend more slots on q045–q052 sweeps.
 
 **Tooling (Jun 5):** `scripts/diagnose_prob_cache_decoders.py`, `scripts/kaggle_submission_ledger.py`, `scripts/submit_to_kaggle.sh` (gate + duplicate guard). Gate now includes `global_mean_shift` ≤ 0.05. `generate_mae_decision_submissions.py` requires `--allow-invalid-decoder` for non-mean.
+
+### 8.10 Scalar temporal calibration (Jun 5, submitted)
+
+Codex recommendation: latest-window holdout on train → constrained per-week affine → apply to frozen 0.8088 anchor. Scripts: `model/temporal_holdout.py`, `model/scalar_calibration.py`, `scripts/run_scalar_calibration_pipeline.sh`.
+
+| File | Holdout proxy | Offline gate vs 0.8088 | Public MAE | Decision |
+|------|---------------|------------------------|------------|----------|
+| `scalar_cal_holdout_full.csv` | MAE 0.319→0.306 (52 win, 2 cutoffs) | safe (diff 0.016, strength 0.4) | **0.8112** | Submitted; **worse**; stop scalar calibration |
+
+**Takeaway:** Same failure mode as OOF-cal ordinal (0.8091): holdout improved and gate passed, but predictions shifted **down** (~0.016 global mean) and LB worsened. Holdout-on-tree-proxy does not predict anchor correction direction on test. **Stop** scalar calibration; hold `prob_blend_recycle8089_ord08.csv` @ **0.8088**.
+
+### 8.11 hybrid_full ordinal (Jun 5, submitted)
+
+Script: `scripts/cache_ordinal_probabilities.py --feature-set hybrid_full` (316 dims: hybrid + same-season + blackout history) → `ordinal_full_hybrid_best.npz`.
+
+| File | Blend | Offline gate vs 0.8088 | Public MAE | Decision |
+|------|-------|------------------------|------------|----------|
+| `prob_blend_recycle8089_fullord08.csv` | 92% soft8089 + 8% full ord | **fail** (week shift 0.023) | — | Not submitted |
+| `prob_blend_8089_fullord03.csv` | 97% soft8089 + 3% full ord | safe (diff 0.020) | **0.8109** | Submitted; **worse**; stop hybrid_full prob branch |
+| `prob_blend_recycle8089_fullord03_ord02.csv` | 98% wrap(fullord03) + 2% full ord | safe (diff 0.025) | **0.8123** | Submitted; **much worse**; stop fullord recycle |
+| `prob_blend_recycle2_8088_w0.97.csv` | 97% soft(8088) + 3% hybrid ord | safe | **0.8089** | Submitted; small regression; stop recycle2 on hybrid ord |
+
+**Takeaway:** Concatenating season + blackout into a new ordinal cache does **not** help in prob blend (worse than season-only 0.8103 or blackout 0.8135 alone at higher weights). Gate-safe at 3% but **systematically wrong direction** on LB (+0.0021). Second recycle amplifies damage (+0.0035). **Do not** spend more slots on `ordinal_full_hybrid_best` or weight sweeps. To reach **0.8056** (−0.0032): train a **joint** region-history model (hurdle or ordinal with interactions), not post-hoc cache averaging.
 
 ### 8.7 Active probability caches
 
@@ -364,6 +396,7 @@ Same 92/8 caches as recycle best; only change is **posterior decision** (`quanti
 | `ordinal_hybrid_best.npz` | hybrid-only ordinal |
 | `ordinal_season_hybrid_best.npz` | hybrid + same-season ordinal |
 | `ordinal_blackout_hybrid_best.npz` | hybrid + blackout history (prob branch stopped @ 0.8135) |
+| `ordinal_full_hybrid_best.npz` | hybrid + season + blackout (prob branch stopped @ 0.8109/0.8123) |
 | `mae_lgbm_hybrid_oofcal_best.npz` | LGBM MAE + OOF residual bins (prob branch stopped @ 0.8098) |
 | `soft_season_scalar_best.npz` | soft wrap of `season_w20_w20_20260530_122421.csv` (substitution stopped @ tie) |
 | `ordinal_history_only_best.npz` | history-only ordinal (substitution stopped @ 0.8118) |
@@ -381,23 +414,20 @@ PYTHONPATH=. python scripts/blend_prob_submissions.py \
 
 ## 9. Next steps (prioritized)
 
-1. ~~Season-history ordinal prob blend~~ — 0.8103; worse than 0.8088.  
-2. ~~Blackout-history ordinal prob blend~~ — 0.8135 @ 7%; gated safe but LB failed.  
-3. ~~MAE-tree OOF-cal prob blend~~ — 0.8098 @ 3%; gated safe but LB failed.  
-4. ~~Substitution season-soft (2–3%)~~ — 0.8088 tie; gated safe, no LB gain.  
-5. ~~Substitution history-only ordinal (2%)~~ — 0.8118; stop branch.  
-6. ~~History residual scalar 0.25%~~ — 0.8088 tie.  
-7. ~~MAE decision quantile (q=0.52) on 92/8 blend~~ — **0.9206**; stop median/quantile decision branch.  
-8. **Hold** current best `prob_blend_recycle8089_ord08.csv` @ **0.8088**.  
-9. ~~**OOF-calibrated hybrid ordinal**~~ — submitted `prob_blend_8089_oofcal_ord08_full.csv` @ **0.8091** (gate safe, OOF 0.378→0.349); **worse than 0.8088**; stop OOF-cal ordinal at 8%.
-10. **Hold** best `prob_blend_recycle8089_ord08.csv` @ **0.8088**. No more median/quantile, substitutions, or OOF-cal ordinal sweeps without new signal.
+**Stopped (gated-safe but LB failed or tie):** season ord 0.8103, blackout ord 0.8135, **hybrid_full ord 0.8109/0.8123**, recycle2 **0.8089**, MAE-tree prob 0.8098, substitutions (tie/0.8118), history residual tie, MAE quantile **0.9206**, OOF-cal ordinal **0.8091**, scalar holdout cal **0.8112**.
 
-**OOF ordinal calibration commands:**
+1. **Hold** `prob_blend_recycle8089_ord08.csv` @ **0.8088** — default Kaggle submission.
+2. **Preserve submission slots** — no more prob-blend micro-sweeps, calibrations, substitutions, or decoder variants on current caches without a **new model family** or paradigm shift.
+3. **Report/thesis** — document plateau: gate + OOF/holdout proxy do not predict LB near 0.8088.
+4. Optional (only if resuming competition): train a structurally different model (not another 8% blend tweak); require **temporal holdout + segmented** checks before any slot.
+
+**Reproduce current best:**
 ```bash
-bash scripts/run_oof_ordinal_calibration_pipeline.sh smoke   # fast; OOF MAE check only
-bash scripts/run_oof_ordinal_calibration_pipeline.sh full    # ~30–60 min; produces prob_blend_8089_oofcal_ord08_full.csv
-bash scripts/submit_to_kaggle.sh output/daily_candidates/prob_blend_8089_oofcal_ord08_full.csv "92/8 soft8089 + 8% OOF-cal hybrid ord"
-```  
+PYTHONPATH=. python scripts/blend_prob_submissions.py \
+  --cache output/prob_cache/soft_prob_best8089.npz:0.92 \
+  --cache output/prob_cache/ordinal_hybrid_best.npz:0.08 \
+  --output-path output/daily_candidates/prob_blend_recycle8089_ord08.csv
+```
 
 ---
 

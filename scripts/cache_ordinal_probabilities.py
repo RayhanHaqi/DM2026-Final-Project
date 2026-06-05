@@ -16,6 +16,7 @@ SOURCE_BY_FEATURE_SET = {
     "hybrid": "ordinal_hybrid",
     "hybrid_season": "ordinal_season_hybrid",
     "hybrid_blackout": "ordinal_blackout_hybrid",
+    "hybrid_full": "ordinal_full_hybrid",
     "history_only": "ordinal_history_only",
 }
 

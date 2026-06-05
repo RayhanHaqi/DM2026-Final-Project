@@ -21,5 +21,10 @@
 | prob_subst_season_900_802_full.csv | Jun 4 | d61cf172 | **0.8088** (tied) | Substitution prob | 90% soft8089 + 8% hybrid_ord + 2% season_scalar_soft | gate safe diff=0.0024; stop season substitution |
 | prob_subst_season_890_803_full.csv | Jun 4 | 3c181427 | **0.8088** (tied) | Substitution prob | 89% soft8089 + 8% hybrid_ord + 3% season_scalar_soft | gate safe diff=0.0036; stop season substitution |
 | prob_subst_history_920_602_full.csv | Jun 4 | 9a360358 | 0.8118 | Substitution prob | 92% soft8089 + 6% hybrid_ord + 2% history_only_ord | gate safe diff=0.016; LB worse; stop history-only substitution |
+| scalar_cal_holdout_full.csv | Jun 5 | c818ea5b | 0.8112 | Scalar temporal cal | Holdout week-affine on tree proxy; strength 0.4; gate safe diff=0.016; holdout proxy MAE 0.319→0.306; **worse than 0.8088**; stop branch |
 | prob_blend_8089_oofcal_ord08_full.csv | Jun 5 | 0f2b73fd | 0.8091 | OOF-cal ordinal prob | 92% soft8089 + 8% ordinal_hybrid_oofcal; gate safe diff=0.0049; **worse than 0.8088** |
 | prob_mae_q052_8089_ord08_full.csv | Jun 4 | 40bcfc62 | **0.9206** | MAE decision (quantile) | 92% soft8089 + 8% hybrid_ord; q=0.52 not mean | Offline mean 0.47 vs anchor 0.88; **stop median/quantile decision branch** |
+| prob_blend_recycle8089_fullord03_ord02.csv | Jun 5 | — | 0.8123 | hybrid_full recycle | 98% wrap(97/3 fullord) + 2% full ord | Gate safe; **much worse**; stop fullord recycle |
+| prob_blend_8089_fullord03.csv | Jun 5 | — | 0.8109 | hybrid_full prob | 97% soft8089 + 3% hybrid_full ordinal | Gate safe diff 0.020; **worse than 0.8088**; stop hybrid_full branch |
+| prob_blend_recycle2_8088_w0.97.csv | Jun 5 | — | 0.8089 | recycle2 | 97% soft(8088) + 3% hybrid ord | Small regression; stop recycle2 |
+| prob_blend_recycle8089_ord08.csv | Jun 5 | 5beb7e62 | **0.8088** | prob recycle | 92% soft8089 + 8% hybrid ord | Re-submit; still best |

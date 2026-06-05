@@ -131,6 +131,7 @@ class OrdinalFeaturesTests(unittest.TestCase):
         self.assertIn("hybrid", ORDINAL_FEATURE_SETS)
         self.assertIn("hybrid_season", ORDINAL_FEATURE_SETS)
         self.assertIn("hybrid_blackout", ORDINAL_FEATURE_SETS)
+        self.assertIn("hybrid_full", ORDINAL_FEATURE_SETS)
         self.assertIn("history_only", ORDINAL_FEATURE_SETS)
 
 
