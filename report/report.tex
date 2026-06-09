@@ -482,6 +482,31 @@ seed30 + tree4 combos & 2--4 way with seed30 GRU & Not submitted & safe \\
 
 \textbf{Probability-space post-hoc blends plateau.} Many gate-safe variants (OOF-cal ordinal, scalar holdout calibration, hybrid\_full ordinal, region\_state AR-lag) worsened public MAE despite favorable offline metrics. Further micro-blends on existing caches are unlikely to reach the 0.8056 target.
 
+\subsection{Stopped Branches (Gate-Safe but Leaderboard Failed or Tied)}
+
+\begin{table}[H]
+\centering
+\caption{Experiment branches stopped after public feedback (June 2026).}
+\label{tab:stopped}
+\begin{tabular}{@{}llcl@{}}
+\toprule
+\textbf{Branch} & \textbf{Representative file} & \textbf{Public MAE} & \textbf{Why stopped} \\
+\midrule
+Season ordinal prob blend & \texttt{prob\_blend\_recycle8088\_season\_ord08} & 0.8103 & Worse than 0.8088 anchor \\
+Blackout ordinal prob blend & \texttt{prob\_blend\_recycle8088\_blackout\_ord07} & 0.8135 & Much worse despite safe gate \\
+Hybrid\_full ordinal 3\% & \texttt{prob\_blend\_8089\_fullord03} & 0.8109 & Gate safe; LB +0.0021 \\
+Fullord recycle & \texttt{prob\_blend\_recycle8089\_fullord03\_ord02} & 0.8123 & Second recycle amplified damage \\
+Region\_state AR-lag 3\% & \texttt{prob\_blend\_recycle8088\_region\_state\_w003} & 0.8121 & Best OOF (0.206); OOF$\rightarrow$test disconnect \\
+OOF-cal hybrid ordinal 8\% & \texttt{prob\_blend\_8089\_oofcal\_ord08\_full} & 0.8091 & OOF improved; mean shift down \\
+Scalar temporal holdout cal & \texttt{scalar\_cal\_holdout\_full} & 0.8112 & Holdout proxy improved; LB worse \\
+MAE quantile decoder $q{=}0.52$ & \texttt{prob\_mae\_q052\_8089\_ord08\_full} & 0.9206 & Invalid decoder on soft cache \\
+Season/history substitution & \texttt{prob\_subst\_season\_900\_802\_full} & 0.8088 (tie) & No LB gain \\
+Recycle2 on 8088 anchor & \texttt{prob\_blend\_recycle2\_8088\_w0.97} & 0.8089 & Small regression \\
+PatchTST standalone & \texttt{patchtst\_*} & 1.04+ & Severe overfit \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 % ==========================================
 \section{Current Best Submission}
 
@@ -538,51 +563,9 @@ OOF-cal / scalar holdout calibration    & Tested, LB worse                 & sto
 \end{tabular}
 \end{table}
 
-\subsection{PatchTST and Remaining Gap}
+\subsection{Remaining Gap and PatchTST}
 
-Analysis of the public Kaggle leaderboard shows top teams between 0.7628 and 0.8043, while the current best is 0.8088 (gap to target 0.8056: 0.0032). PatchTST with self-supervised pretraining was implemented but severely overfit (public MAE 1.04+). Further prob-blend micro-sweeps on existing caches have plateaued. Closing the remaining gap likely requires a joint region-history model validated with temporal backtesting, not another post-hoc cache average.
-
-\subsubsection{Architecture}
-
-The PatchTST model adapts the Transformer encoder for multivariate time series forecasting. Given the input shape $(B, 91, 14)$ (the same 91-day window of 14 meteorological features used by the existing CNN), the pipeline proceeds as follows:
-
-\begin{enumerate}
-    \item \textbf{RevIN normalization:} Reversible instance normalization per channel handles distribution shift between training and test time periods.
-    \item \textbf{Patching:} Each of the 14 channels is segmented into 7-day patches with stride 3, yielding 29 patches per channel and 406 tokens total.
-    \item \textbf{Patch embedding:} Each 7-timestep patch is projected to $d_{\text{model}} = 128$ via a shared linear layer.
-    \item \textbf{Positional encoding:} A learnable positional encoding of shape $(1, 406, 128)$ is added.
-    \item \textbf{Transformer encoder:} 3 layers, 8 attention heads, feedforward dimension 256, Pre-LN, GELU activation, dropout 0.2. All 406 tokens undergo cross-channel self-attention, enabling the model to learn feature interactions (e.g., high temperature + low humidity $\rightarrow$ elevated severity).
-    \item \textbf{Prediction head:} Global mean pooling across tokens, followed by LayerNorm $\rightarrow$ Linear(128 $\rightarrow$ 64) $\rightarrow$ GELU $\rightarrow$ Dropout $\rightarrow$ Linear(64 $\rightarrow$ 5).
-\end{enumerate}
-
-\subsubsection{Self-Supervised Pretraining}
-
-A key advantage of the Transformer architecture is the ability to leverage unlabeled data through self-supervised learning. The full training dataset contains 12.3 million meteorological observations, of which only approximately 117,000 fall within labeled 5-week windows. The remaining 99\% of data is unused by supervised models.
-
-Pretraining proceeds via masked patch reconstruction:
-\begin{itemize}
-    \item Approximately 4 million sliding 91-day windows are extracted from all 2,248 regions (stride = 3).
-    \item 40\% of patches are randomly masked and replaced with a learnable \texttt{[MASK]} embedding.
-    \item The model is trained to reconstruct the original 7-timestep values from the masked patches using MSE loss.
-    \item Training runs for 5 epochs with batch size 256, AdamW optimizer (lr = $10^{-4}$, weight decay = 0.01), and OneCycleLR scheduling.
-\end{itemize}
-
-This pretraining teaches the model weather dynamics --- seasonal patterns, feature interactions, and typical evolution trajectories --- without requiring severity labels. The pretrained backbone serves as initialization for downstream fine-tuning.
-
-\subsubsection{Fine-Tuning and Integration}
-
-The pretrained backbone is fine-tuned on the labeled 52-window-per-region dataset (~117K samples). Gradual unfreezing is applied: the backbone is frozen for the first 5 epochs (head-only training), the last Transformer layer is unfrozen for epochs 6--15, and the full model is trained from epoch 16 onward. Training uses L1 loss with AdamW (lr = $5 \times 10^{-5}$), ReduceLROnPlateau scheduling, GroupShuffleSplit validation by region, and early stopping (patience = 8).
-
-Three integration strategies are planned, gated by distribution safety checks:
-\begin{enumerate}
-    \item \textbf{Standalone:} If the PatchTST ensemble passes correlation, mean-difference, and week-shift gates against the current best, it is submitted directly.
-    \item \textbf{Blend:} Weighted blends (5\%, 10\%, 20\%, 30\%) into the current best anchor; the highest safe weight is submitted.
-    \item \textbf{Full-stack:} If standalone performance warrants, the PatchTST anchor is combined with the existing tree, ordinal, and residual corrections for a 4-way ensemble.
-\end{enumerate}
-
-\subsubsection{Expected Impact}
-
-The PatchTST paradigm shift is expected to deliver an improvement of 0.015--0.054 in public MAE, targeting scores in the 0.76--0.79 range. The implementation is incrementally testable: the model uses the same input shape and training infrastructure as the existing CNN, and each stage (compilation, smoke test, pretraining, fine-tuning, gating) can be validated independently before committing to full training.
+Top public leaderboard teams score between 0.7628 and 0.8043; our best is 0.8088 (gap to course target 0.8056: 0.0032). PatchTST with self-supervised pretraining was implemented and tested but severely overfit (public MAE 1.04+), matching the V2 CNN failure mode. Further prob-blend micro-sweeps have plateaued. Any future gain likely requires joint region-history retraining with temporal validation, not another post-hoc cache average.
 
 % ==========================================
 \section{Conclusion}
@@ -600,5 +583,32 @@ The most important methodological findings are:
 \end{itemize}
 
 The current best submission is \texttt{prob\_blend\_recycle8089\_ord08.csv}: 92\% soft recycled anchor plus 8\% hybrid ordinal class probabilities. The region\_state AR-lag ordinal branch is stopped after public rejection despite the best OOF MAE in the project.
+
+% ==========================================
+\appendix
+\section{Reproduction Checklist}
+
+\textbf{Best submission file:} \texttt{output/daily\_candidates/prob\_blend\_recycle8089\_ord08.csv} (public MAE 0.8088).
+
+\textbf{Validate format and gate (self-check):}
+\begin{verbatim}
+PYTHONPATH=. python scripts/gate_and_validate_submissions.py \
+  --reference output/daily_candidates/prob_blend_recycle8089_ord08.csv \
+  --candidate output/daily_candidates/prob_blend_recycle8089_ord08.csv
+\end{verbatim}
+Expected: \texttt{validate\_submission True}, \texttt{safe True}.
+
+\textbf{Rebuild from caches:}
+\begin{verbatim}
+PYTHONPATH=. python scripts/cache_submission_soft_probs.py \
+  --submission output/daily_candidates/prob_blend_recycle8092_ord10.csv \
+  --output-path output/prob_cache/soft_prob_best8089.npz
+PYTHONPATH=. python scripts/blend_prob_submissions.py \
+  --cache output/prob_cache/soft_prob_best8089.npz:0.92 \
+  --cache output/prob_cache/ordinal_hybrid_best.npz:0.08 \
+  --output-path output/daily_candidates/prob_blend_recycle8089_ord08.csv
+\end{verbatim}
+
+\textbf{Notebook:} Run all cells in \texttt{Project\_Analysis.ipynb} (first run builds window feature cache).
 
 \end{document}
