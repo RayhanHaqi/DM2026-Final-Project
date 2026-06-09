@@ -1,0 +1,604 @@
+\documentclass[12pt, a4paper]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{top=2.5cm, bottom=2.5cm, left=3cm, right=2.5cm}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{float}
+\onehalfspacing
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=blue,
+    citecolor=blue,
+}
+
+% --- Document Identity ---
+\title{\textbf{Data Mining}\\ \large Final Project: Preliminary Experiment Report}
+\author{
+    Muhammad Rayhan Athaillah\\
+    \small Student ID: 313540001\\
+    \small National Yang Ming Chiao Tung University
+}
+\date{June 2026}
+
+\begin{document}
+
+\maketitle
+
+\vspace{0.5cm}
+\noindent \textbf{GitHub Repository:} \href{https://github.com/RayhanHaqi/DM2026-Assignment-Final}{https://github.com/RayhanHaqi/DM2026-Assignment-Final}
+
+% ==========================================
+\section{Introduction}
+This report documents the experimental iteration process for the Data Mining Final Project---predicting disaster severity scores over a five-week horizon across 2248 regions. The project has proceeded through multiple experiment families: baseline XGBoost, small CNN, CNN-GRU blending, temporal tree correction, ordinal threshold classification, and historical severity modeling. This report summarizes the key results, analyzes which approaches worked, and identifies remaining difficulties.
+
+\subsection{Dataset}
+The training set contains 12.3 million rows covering 5480 days of 14 meteorological features for each of 2248 regions, with weekly labeled severity scores from 0 to 5. The test set contains the last 91 days of weather per region; predictions must be submitted as a CSV matching the sample submission format.
+
+\textbf{Key facts:}
+\begin{itemize}
+    \item Training labels are discrete ordinal classes: 0, 1, 2, 3, 4, 5.
+    \item Overall zero-label fraction: 59.6\%; recent cached window zero fraction: 60.9\%.
+    \item Train and test share all 2248 region IDs (100\% overlap).
+    \item Recent cached training label mean: 0.7284, median: 0, std: 1.1093.
+\end{itemize}
+
+\subsection{Evaluation Metric}
+The competition uses Mean Absolute Error (MAE), reported on the public Kaggle leaderboard. Lower MAE is better. All submission CSVs are validated against the sample submission format before submission.
+
+\subsection{Experiment Workflow}
+All experiments follow a consistent pipeline: generate a candidate prediction CSV, validate it against the sample submission, check distribution safety against the current best anchor (correlation $\ge$ 0.9990, mean absolute difference $\le$ 0.015, max week-mean shift $\le$ 0.012), and submit to Kaggle only if all gates pass. Submissions are made in batches of 3--6 per day with public leaderboard feedback guiding the next wave.
+
+% ==========================================
+\section{Baseline Experiments}
+
+\subsection{XGBoost Baseline}
+A multi-output \texttt{XGBRegressor} was trained on 168 aggregated statistical features per 91-day window, using 52 most recent windows per region. Parameters: 200 trees, max depth 5, learning rate 0.05, L1/L2 regularization.
+
+\begin{table}[H]
+\centering
+\caption{XGBoost baseline submissions.}
+\label{tab:xgb}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{File} & \textbf{Public MAE} & \textbf{Features} \\
+\midrule
+\texttt{submission\_xgb\_v1.csv}      & 0.8437 & 126 stats (9 per feature) \\
+\texttt{submission\_xgb\_v2\_fixed.csv} & 0.8434 & 168 stats (12 per feature) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The XGBoost baseline established a solid lower bound. Increasing aggregation statistics from 9 to 12 per feature produced a marginal improvement. All subsequent neural architecture experiments were required to beat this threshold.
+
+\subsection{Small CNN Baseline}
+A small 1-D convolutional neural network was trained on raw 91-day sequences. The architecture used three convolutional blocks with max pooling, followed by a linear head producing five weekly predictions. Training used AdamW optimizer, L1 loss, dropout 0.15, and weight decay 0.001.
+
+\begin{table}[H]
+\centering
+\caption{CNN architecture variants. All trained on 52 windows per region. Val MAE is local random-region split.}
+\label{tab:cnn}
+\begin{tabular}{@{}lcccl@{}}
+\toprule
+\textbf{Variant} & \textbf{Epochs} & \textbf{Val MAE} & \textbf{Public MAE} & \textbf{Notes} \\
+\midrule
+Small CNN, seed 42      & 25 & 0.3614  & 0.8222 & Best neural baseline \\
+Small CNN, seed 42      & 40 & 0.3422  & 0.8282 & Worse public despite better val \\
+V2 CNN (larger)         & 40 & 0.2418  & 0.8967 & Severe overfit \\
+V2 CNN (larger)         & 100& 0.2417  & 0.8901 & Severe overfit \\
+Small CNN, seed 123     & 30 & 0.3453  & 0.8512 & Worse \\
+Small CNN, seed 7       & 25 & 0.3638  & 0.8812 & Worse \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The small CNN at 25 epochs (0.8222) was the best neural baseline. Increasing architecture capacity (V2) or training duration (40--100 epochs) drastically worsened public scores despite much better local validation MAE. Seed variations (123, 7) also underperformed.
+
+\textbf{Conclusion:} Local random-region validation is unreliable for architecture selection. The small CNN at 0.8222 became the first usable neural anchor.
+
+\subsection{CNN-GRU Blending}
+A CNN-GRU hybrid model was trained with seed 42 on the same 91-day sequences. The standalone GRU had strong validation but a different prediction distribution (correlation 0.643 vs the small CNN anchor). Blending at low weights was both safe and beneficial.
+
+\begin{table}[H]
+\centering
+\caption{CNN-GRU blend progression. Reference anchor is \texttt{cnn\_1d\_20260518\_180837.csv} at 0.8222.}
+\label{tab:gru}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{File} & \textbf{GRU Weight} & \textbf{Public MAE} \\
+\midrule
+\texttt{cnn\_gru\_blend\_w20\_20260522\_160258.csv}   & 20\%   & 0.8171 \\
+\texttt{cnn\_gru\_blend\_w25\_20260522\_163741.csv}   & 25\%   & 0.8167 \\
+\texttt{cnn\_gru\_blend\_w26\_20260522\_170137.csv}   & 26\%   & 0.8167 \\
+\texttt{cnn\_gru\_blend\_w25p5\_w26\_20260522\_171753.csv} & 25.5\% & 0.8167 \\
+\texttt{cnn\_gru\_blend\_w27\_20260522\_163914.csv}   & 27\%   & Not submitted (failed gate) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The GRU blend plateaued at 0.8167 across all weights from 24\% to 26\%. Increasing above 27\% violated distribution safety gates. Different GRU seeds (seed21, seed30) and a multi-GRU average variant were also tested but did not improve beyond this plateau.
+
+\textbf{Conclusion:} The w25 CNN-GRU blend at 0.8167 became the strong anchor for all subsequent correction experiments. The plateau indicated that further GRU weight tuning alone would not produce further gains.
+
+% ==========================================
+\section{Tree-Based Refinement Experiments}
+
+\subsection{Temporal Tree Correction}
+XGBoost per-week regression models were trained on hybrid temporal features: 168 baseline aggregation statistics plus targeted temporal deltas (first30, middle30, last30, last14, last7 means and their differences). The standalone tree predictions had higher means than the GRU anchor, making them unsafe at full weight, but tiny blends were both safe and effective.
+
+\begin{table}[H]
+\centering
+\caption{Temporal tree correction results. Reference: CNN-GRU w25 blend at 0.8167.}
+\label{tab:tree}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{File} & \textbf{Tree Weight} & \textbf{Public MAE} \\
+\midrule
+\texttt{w25\_tree\_hybrid\_blend\_w02\_20260523\_041047.csv} & 2.0\% & 0.8159 \\
+\texttt{w25\_tree\_refine\_w025\_20260524.csv}                & 2.5\% & 0.8158 \\
+\texttt{w25\_tree\_refine\_w030\_20260524.csv}                & 3.0\% & 0.8156 \\
+\texttt{w25\_tree\_refine\_w040\_20260524.csv}                & 4.0\% & Not submitted (safe, held) \\
+\texttt{w25\_tree\_hybrid\_blend\_w05\_20260523\_041048.csv}   & 5.0\% & Not submitted (failed gate) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The 2\% tree correction broke through the 0.8167 GRU plateau, achieving 0.8159. Increasing the tree weight to 3\% improved further to 0.8156. At 5\%, the distribution shift (week-mean shift $\ge$ 0.02) exceeded safety thresholds.
+
+\textbf{Conclusion:} Low-weight temporal tree correction (2--4\%) was the first method to reliably beat the GRU anchor. This established tree-based corrections as a core component of all subsequent best models.
+
+\subsection{Absolute Error Tree}
+XGBoost was also trained with the \texttt{reg:absoluteerror} objective to align tree training directly with the MAE metric. The same hybrid temporal features and hyperparameters were used.
+
+\begin{table}[H]
+\centering
+\caption{Absolute error tree results.}
+\label{tab:abs}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{File} & \textbf{Abs Tree Weight} & \textbf{Public MAE} \\
+\midrule
+\texttt{anchor\_abs\_tree\_w02\_20260524.csv}      & 2\% (into tree anchor) & 0.8156 \\
+\texttt{current\_best\_abs\_tree\_w010\_20260525.csv} & 1\% (into ordinal best) & 0.8151 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} At 2\%, the absolute error tree tied with the standard tree correction at 0.8156. When combined with the ordinal-based best at 1\%, it reached 0.8151, comparable to tree/ordinal refinements. Quantile tree variants ($\alpha = 0.45, 0.50, 0.55$) were also generated but did not surpass these scores.
+
+\textbf{Conclusion:} The absolute error tree is a useful complementary signal but not strictly better than the standard tree correction. It serves as one of several admissible low-weight correction sources.
+
+% ==========================================
+\section{Ordinal Classification Experiments}
+
+\subsection{Ordinal Threshold Tree}
+Instead of regression, cumulative XGBoost classifiers were trained per target week for five binary thresholds: $\text{score} \ge 1, \dots, \text{score} \ge 5$. Class probabilities were converted to expected severity via threshold differences. The same hybrid temporal features were used, with classifier parameters: 250 trees, max depth 4, learning rate 0.04, subsample 0.85, colsample\_bytree 0.85.
+
+\begin{table}[H]
+\centering
+\caption{Ordinal classification results. Reference: tree anchor at 0.8159.}
+\label{tab:ordinal}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{File} & \textbf{Ordinal Weight} & \textbf{Public MAE} \\
+\midrule
+\texttt{anchor\_ordinal\_tree\_w00\_20260524.csv} & 0.5\% & Not submitted (safe) \\
+\texttt{anchor\_ordinal\_tree\_w01\_20260524.csv} & 1.0\% & \textbf{0.8153} \\
+\texttt{anchor\_ordinal\_tree\_w02\_20260524.csv} & 2.0\% & Not submitted (safe) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The ordinal tree at only 1\% weight immediately became the new best at 0.8153. The standalone ordinal model had much higher prediction means (0.91--1.10) but was safe and beneficial at very low blend weights. This was the most impactful single method discovery in the project.
+
+\textbf{Conclusion:} Ordinal expected-value modeling, which exploits the discrete ordered class structure, is strictly better than continuous regression for this task. All subsequent best submissions include a low-weight ordinal component.
+
+\subsection{Tree + Ordinal Blend Refinement}
+Both the tree correction weight and the ordinal classification weight were jointly refined. Combinations were generated deterministically and submitted only after passing strict distribution gates.
+
+\begin{table}[H]
+\centering
+\caption{Tree + ordinal combined refinement.}
+\label{tab:combo}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{File} & \textbf{Construction} & \textbf{Public MAE} \\
+\midrule
+\texttt{tree2\_ordinal\_w020\_20260525.csv}  & tree2 + 2.0\% ordinal & 0.8150 \\
+\texttt{tree3\_ordinal\_w010\_20260525.csv}  & tree3 + 1.0\% ordinal & 0.8151 \\
+\texttt{tree3\_ordinal\_w015\_20260525.csv}  & tree3 + 1.5\% ordinal & 0.8149 \\
+\texttt{tree3\_ordinal\_w020\_20260525.csv}  & tree3 + 2.0\% ordinal & 0.8146 \\
+\texttt{tree4\_ordinal\_w015\_20260525.csv}  & tree4 + 1.5\% ordinal & \textbf{0.8145} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} Each increment in tree correction weight (2\% $\rightarrow$ 3\% $\rightarrow$ 4\%) produced a measurable public improvement when paired with an appropriate ordinal weight. The combination of 4\% tree correction and 1.5\% ordinal gave the current best score of 0.8145. This pattern suggests that the optimal combination leans more heavily on the tree correction.
+
+\textbf{Conclusion:} The current best strategy is not a larger standalone model but a calibrated ensemble: a neural sequence anchor corrected by temporal tree predictions and ordinal threshold classifiers. Both correction families are necessary; neither alone reaches the current best.
+
+% ==========================================
+\section{Historical Severity Experiments}
+
+\subsection{Direct Severity Prior}
+A simple post-hoc correction was constructed from the mean of the last 20 known severity scores per region. The prior had much lower means than the anchor (0.51 vs 0.72) and was only safe at very low blend weights.
+
+\begin{table}[H]
+\centering
+\caption{Direct severity prior results.}
+\label{tab:prior}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{File} & \textbf{Prior Weight} & \textbf{Public MAE} \\
+\midrule
+\texttt{anchor\_severity\_prior\_w010\_20260524.csv} & 1.0\% & Not submitted (safe) \\
+\texttt{anchor\_severity\_prior\_w020\_20260524.csv} & 2.0\% & 0.8177 \\
+\texttt{anchor\_severity\_prior\_w030\_20260524.csv} & 3.0\% & Not submitted (safe) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The prior at 2\% was distribution-safe but actively worsened public MAE (0.8177 vs 0.8159). The mean of old training scores is too different from the calibrated prediction anchor to serve as a direct correction. The root cause was identified later: train history can use scores immediately before labels (recent), while test history is stale (median gap $\sim$450 days from last known score to test start).
+
+\subsection{History-Augmented Ordinal Model}
+Severity history features were added to the ordinal classification tree training. Train history used scores only before each label position. Test history used all available train scores.
+
+\begin{table}[H]
+\centering
+\caption{History-augmented ordinal results.}
+\label{tab:hist1}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{File} & \textbf{Weight} & \textbf{Public MAE} \\
+\midrule
+\texttt{current\_best\_history\_ordinal\_w005\_20260525.csv}  & 0.5\% & 0.8157 \\
+\texttt{current\_best\_history\_ordinal\_w010\_20260525.csv}  & 1.0\% & Not submitted (safe) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The history ordinal helped relative to the direct prior (0.8157 vs 0.8177) but did not beat the pure ordinal blend (0.8153). The problem was identified as a recency mismatch: training could see scores immediately before labels, while the test horizon has no score data inside the 91-day weather window.
+
+\subsection{Blackout History Ordinal Model}
+The history feature builder was modified to hide any score inside the 91-day input weather window. Train history was cut at $\texttt{first\_label\_pos} - 91$, mirroring test-time unavailability. A new ordinal model was trained on these blackout-aligned history features together with hybrid temporal features. New functions \texttt{build\_train\_blackout\_history\_features\_from\_frame} and \texttt{build\_test\_blackout\_history\_features\_from\_frame} were added to \texttt{model/severity\_history.py}, along with additional history statistics: score count and gap positions.
+
+\begin{table}[H]
+\centering
+\caption{Blackout history ordinal results. Reference: current best at 0.8149.}
+\label{tab:hist2}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+\textbf{File} & \textbf{Weight} & \textbf{Public MAE} & \textbf{vs Old History} \\
+\midrule
+\texttt{best\_history\_blackout\_ordinal\_w0025\_20260525.csv} & 0.25\% & 0.8150 & $+$0.0007 \\
+\texttt{best\_history\_blackout\_ordinal\_w005\_20260525.csv}  & 0.50\% & 0.8151 & $+$0.0006 \\
+\texttt{best\_history\_blackout\_ordinal\_w010\_20260525.csv}  & 1.00\% & 0.8152 & $+$0.0005 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The blackout fix improved history ordinal performance from 0.8157 (old history) to 0.8150 (best blackout weight, 0.25\%). This confirms the recency mismatch was a real problem and that region score history contains positive signal when properly aligned. However, blackout history did not beat the tree/ordinal refinements (0.8145, 0.8146), suggesting that history features, while useful, are not yet the strongest correction.
+
+\textbf{Conclusion:} Blackout history is a verified improvement over the original implementation. The feature design must respect the test-time information horizon. Further work may involve stale-aware features (time gaps, long-term region class probabilities, same-season severity priors) and integration with residual correction models.
+
+% ==========================================
+\section{Expanded Multi-Signal and New-Method Experiments}
+
+Following the blackout history improvement, 20 additional candidates were generated across six experiment families: tree + ordinal continuation (up to 5\% tree weight), per-week ordinal weighting, multi-signal 3--4-way combinations, history-blackout temporal tree regression, residual correction, and affine calibration. The goal was to test every remaining plausible signal combination at distributionally safe weights.
+
+\subsection{Blackout Temporal Tree}
+An XGBoost regression model was trained on hybrid temporal features augmented with blackout history features, the same feature set that improved the ordinal model. Unlike the ordinal classifier, this model uses standard regression and was tested at four blend weights.
+
+\begin{table}[H]
+\centering
+\caption{Blackout temporal tree results. Reference: current best at 0.8145.}
+\label{tab:blktemp}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+\textbf{File} & \textbf{Weight} & \textbf{Public MAE} & \textbf{Gate} \\
+\midrule
+\texttt{best\_hb\_temp\_w0025\_20260526.csv} & 0.25\% & \textbf{0.8146} & safe \\
+\texttt{best\_hb\_temp\_w005\_20260526.csv}  & 0.50\% & Not submitted & safe \\
+\texttt{best\_hb\_temp\_w010\_20260526.csv}  & 1.00\% & Not submitted & safe \\
+\texttt{best\_hb\_temp\_w020\_20260526.csv}  & 2.00\% & Not submitted & safe \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The blackout temporal tree at 0.25\% reached 0.8146, beating the previous best of 0.8145. This confirms that blackout-aligned history features are beneficial across model families, not only in ordinal classification.
+
+\subsection{Residual Correction}
+A new method was introduced: train XGBoost on the prediction residuals $y_{\text{train}} - \hat{y}_{\text{best}}$ using hybrid temporal features, then add the predicted correction to the current best prediction. This directly targets the remaining error of the best ensemble, rather than training a standalone model.
+
+\begin{table}[H]
+\centering
+\caption{Residual correction results. Reference: current best at 0.8145.}
+\label{tab:resid}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+\textbf{File} & \textbf{Weight} & \textbf{Public MAE} & \textbf{Gate} \\
+\midrule
+\texttt{best\_residual\_w005\_20260526.csv} & 0.5\% & \textbf{0.8144} & safe \\
+\texttt{best\_residual\_w010\_20260526.csv} & 1.0\% & Not submitted & safe \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} The residual correction at 0.5\% achieved the new best public score of 0.8144. The method is structurally different from simple blending because it directly models the remaining error rather than adding another independent prediction source. The CV residual MAE of approximately 0.385 suggests modest but real predictability in the anchor's remaining errors.
+
+\textbf{Conclusion:} Residual correction is the strongest new method discovered. It improves by targeting the current best's weaknesses rather than adding another standalone model.
+
+% ==========================================
+\section{June Experiments: LightGBM, Probability Blends, and Region-State Ordinal}
+
+After the May residual-correction best (0.8144), further gains came from LightGBM grid search blended into the season-tree anchor (0.8112), then from probability-space blending: mean-preserving soft wrap of the current best CSV plus ordinal class probabilities. Anchor recycling (soft-wrap the prob-best and re-blend at lower ordinal weight) broke through to \textbf{0.8088} on June 4.
+
+\subsection{Probability-Space Recycled Anchor}
+
+The current best submission blends 92\% soft-wrapped 0.8089 anchor with 8\% hybrid ordinal cache. Weights of 7--8\% tie at 0.8088; 6\% worsens to 0.8090. Many gate-safe variants failed on the public leaderboard: OOF-calibrated ordinal (0.8091), scalar temporal holdout calibration (0.8112), hybrid\_full ordinal at 3\% (0.8109), and fullord recycle (0.8123). The pattern is consistent: offline proxies and distribution gates do not predict public MAE near the plateau.
+
+\subsection{Region-State AR-Lag Ordinal (June 8--9)}
+
+Following competition research and a Codex review, a history-enhanced ordinal model with AR severity lags was implemented (\texttt{region\_state} feature set: hybrid + season + blackout history + 4 AR lags, 323 features). OOF ablations (GroupKFold-5 by region) showed a large improvement from AR lags:
+
+\begin{table}[H]
+\centering
+\caption{Region-state OOF ablations (June 8).}
+\label{tab:regionstate-oof}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Ablation} & \textbf{Feature set} & \textbf{OOF MAE} \\
+\midrule
+met\_season\_history\_lags & region\_state & \textbf{0.2058} \\
+met\_season\_history & hybrid\_full & 0.3251 \\
+met\_history & hybrid\_blackout & 0.3275 \\
+met\_only & hybrid & 0.3784 \\
+history\_only & history\_only & 0.5563 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The standalone cache correlated only $\sim$0.53 with the hybrid ordinal cache (structurally new signal). A 3\% blend into the 0.8088 anchor passed all distribution gates (correlation 0.9995, mean abs diff 0.0205, week shift 0.017).
+
+\begin{table}[H]
+\centering
+\caption{Region-state blend public result (June 9).}
+\label{tab:regionstate-lb}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{File} & \textbf{Blend} & \textbf{Gate} & \textbf{Public MAE} \\
+\midrule
+\texttt{prob\_blend\_recycle8088\_region\_state\_w003.csv} & 97\% + 3\% region\_state & safe & \textbf{0.8121} \\
+\texttt{prob\_blend\_recycle8089\_ord08.csv} (best) & 92\% + 8\% hybrid ord & --- & 0.8088 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:} Despite the best OOF MAE observed in the project (0.2058), the public score worsened by +0.0033. The blend shifted the anchor \textit{down} by $\sim$0.015 in global mean. Test standalone means were: anchor 0.884, region\_state cache 0.379, hybrid ordinal 1.009. OOF predicted mean was well-calibrated ($\sim$0.726) but full-train test predictions collapsed to $\sim$0.38 --- a severe OOF-to-test disconnect. GroupKFold OOF validates unseen \textit{regions}, while the public test uses the same regions at a future horizon; AR-lag features that dominate cross-region OOF do not generalize to this temporal setting.
+
+\textbf{Conclusion:} The region\_state prob-blend branch is stopped. Raw GroupKFold OOF is untrustworthy for history/AR-lag blend decisions without temporal backtesting (train-past $\rightarrow$ predict-future, same regions).
+
+\subsection{Per-Week Ordinal and Multi-Signal Combinations}
+19 of 20 candidates passed strict distribution gates. Public scores for the submitted candidates are shown below; the remainder are queued for future submission windows.
+
+\begin{table}[H]
+\centering
+\caption{Additional May 26--27 candidates and public results.}
+\label{tab:may26}
+\begin{tabular}{@{}lclc@{}}
+\toprule
+\textbf{Candidate} & \textbf{Construction} & \textbf{Public MAE} & \textbf{Gate} \\
+\midrule
+per-week ordinal (increasing) & $[1.0, 1.2, 1.5, 1.8, 2.0]\%$ ordinal into tree4 & 0.8147 & safe \\
+per-week ordinal (late-higher) & $[0.8, 1.2, 1.5, 1.8, 2.2]\%$ ordinal into tree4 & Not submitted & safe \\
+tree4 4-way combo & tree4 + hist 0.25\% + abs 0.5\% + ord 1.5\% & 0.8145 (tied) & safe \\
+tree4 + hist + ordinal & tree4 + blackout ord 0.25\% + ord 1.5\% & Not submitted & safe (corr 0.999998) \\
+tree5 + ordinal 1\% & tree5 + 1\% ordinal & Not submitted & safe \\
+tree5 + ordinal 1.5\% & tree5 + 1.5\% ordinal & Not submitted & safe \\
+tree4 + abs 1\% + ordinal & 3-way tree + abs + ordinal & Not submitted & safe \\
+seed30 + tree4 combos & 2--4 way with seed30 GRU & Not submitted & safe \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ==========================================
+\section{Summary of Public Leaderboard Results}
+
+\begin{table}[H]
+\centering
+\caption{Complete public score progression. Submissions ranked from best to baseline.}
+\label{tab:summary}
+\begin{tabular}{@{}rllc@{}}
+\toprule
+\textbf{Rank} & \textbf{File} & \textbf{Method} & \textbf{Public MAE} \\
+\midrule
+ 1 & \texttt{prob\_blend\_recycle8089\_ord08.csv}              & prob recycle 92\% + 8\% hybrid ordinal       & \textbf{0.8088} \\
+ 2 & \texttt{lgbm\_blend\_w15\_w15\_20260531\_133212.csv}       & LGBM 15\% into season anchor                 & 0.8112 \\
+ 3 & \texttt{prob\_blend\_recycle8088\_region\_state\_w003.csv}  & region\_state AR-lag ordinal 3\% (failed)   & 0.8121 \\
+ 4 & \texttt{best\_residual\_w005\_20260526.csv}              & residual correction 0.5\%                    & 0.8144 \\
+ 5 & \texttt{tree4\_ordinal\_w015\_20260525.csv}                & tree4 + 1.5\% ordinal                       & 0.8145 \\
+ 6 & \texttt{tree4\_hb\_abs\_ord\_4way\_20260526.csv}            & tree4 4-way combo                            & 0.8145 \\
+ 7 & \texttt{best\_hb\_temp\_w0025\_20260526.csv}               & blackout temporal tree 0.25\%               & 0.8146 \\
+ 8 & \texttt{tree3\_ordinal\_w020\_20260525.csv}                & tree3 + 2.0\% ordinal                       & 0.8146 \\
+ 9 & \texttt{tree4\_ordinal\_weekly\_w01\_01\_02\_02\_02\_...16454} & per-week ordinal (increasing)           & 0.8147 \\
+10 & \texttt{tree2\_ordinal\_w020\_20260525.csv}                & tree2 + 2.0\% ordinal                       & 0.8150 \\
+11 & \texttt{best\_history\_blackout\_ordinal\_w0025\_20260525}  & blackout history ordinal 0.25\%             & 0.8150 \\
+12 & \texttt{tree3\_ordinal\_w010\_20260525.csv}                & tree3 + 1.0\% ordinal                       & 0.8151 \\
+13 & \texttt{best\_history\_blackout\_ordinal\_w005\_20260525}   & blackout history ordinal 0.5\%              & 0.8151 \\
+14 & \texttt{best\_history\_blackout\_ordinal\_w010\_20260525}   & blackout history ordinal 1.0\%              & 0.8152 \\
+15 & \texttt{anchor\_ordinal\_tree\_w01\_20260524.csv}          & ordinal tree 1\%                            & 0.8153 \\
+16 & \texttt{anchor\_abs\_tree\_w02\_20260524.csv}              & absolute error tree 2\%                     & 0.8156 \\
+17 & \texttt{w25\_tree\_refine\_w030\_20260524.csv}              & tree 3\% correction                         & 0.8156 \\
+18 & \texttt{current\_best\_history\_ordinal\_w005\_20260525}    & history ordinal 0.5\% (old)                 & 0.8157 \\
+19 & \texttt{w25\_tree\_refine\_w025\_20260524.csv}              & tree 2.5\% correction                       & 0.8158 \\
+20 & \texttt{tree\_anchor\_seed30\_w050\_20260524.csv}           & seed30 GRU 5\% + tree anchor                & 0.8158 \\
+21 & \texttt{w25\_tree\_hybrid\_blend\_w02\_20260523\_041047.csv}& tree 2\% correction                         & 0.8159 \\
+22 & \texttt{w25\_seed30\_gru\_blend\_w07p5\_w08\_20260523\_035629.csv} & seed30 GRU 7.5\%                    & 0.8165 \\
+23 & \texttt{cnn\_gru\_blend\_w25\_20260522\_163741.csv}         & CNN-GRU 25\%                                & 0.8167 \\
+24 & \texttt{cnn\_gru\_blend\_w20\_20260522\_160258.csv}         & CNN-GRU 20\%                                & 0.8171 \\
+25 & \texttt{anchor\_severity\_prior\_w020\_20260524.csv}        & severity prior 2\%                          & 0.8177 \\
+26 & \texttt{cnn\_1d\_20260518\_180837.csv}                      & small CNN 25 epochs                         & 0.8222 \\
+27 & \texttt{submission\_xgb\_v2\_fixed.csv}                     & XGBoost baseline                            & 0.8434 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Overall improvement:} From 0.8434 to 0.8088, a reduction of 0.0346 in public MAE. The largest single-stage improvements came from: (1) switching to raw-sequence CNN (0.8434 $\rightarrow$ 0.8222), (2) blending CNN with GRU (0.8222 $\rightarrow$ 0.8167), (3) ordinal threshold classification and tree corrections (0.8167 $\rightarrow$ 0.8144), (4) LightGBM and season-tree blending (0.8144 $\rightarrow$ 0.8112), and (5) probability-space recycled anchor with hybrid ordinal (0.8112 $\rightarrow$ 0.8088). The gap to the course baseline target (0.8056) remains 0.0032.
+
+% ==========================================
+\section{Analysis of Successful Methods}
+
+\textbf{Tree correction works at low weights.} Once the CNN-GRU anchor stabilized, adding 2--4\% of temporal tree predictions consistently improved public MAE. Each increase in tree weight produced a measurable improvement, but the standalone tree is distribution-mismatched and safe only as a small correction.
+
+\textbf{Ordinal classification is the breakthrough.} The ordinal expected-value method directly uses the discrete ordered target structure that continuous regression ignores. Every best combination since the ordinal introduction includes an ordinal component. This is the single most impactful method discovery.
+
+\textbf{Combining orthogonal corrections beats one strong model.} The current best construction (96\% w25 CNN-GRU + 4\% temporal tree + 1.5\% ordinal tree) shows that a structurally diverse ensemble of weak corrections is more effective than a single powerful model.
+
+\textbf{History features improve when matched to test availability.} The blackout fix raised history ordinal performance from 0.8157 to 0.8150, and the blackout temporal tree reached 0.8146. This confirms that region score history contains positive signal but the feature design must respect the test-time information horizon.
+
+\textbf{Residual correction is the strongest new method.} Training a model on the remaining error of the best ensemble (0.8145 $\rightarrow$ 0.8144) outperformed adding another standalone prediction source. This approach directly targets weaknesses rather than providing independent predictions that must be safety-gated at low weights.
+
+% ==========================================
+\section{Analysis of Failed or Limited Methods}
+
+\textbf{No larger or longer-trained neural networks helped.} V2 CNN and 40/100-epoch variants had much better local validation MAE but drastically worse public scores (0.89--0.90 vs 0.8222). Calendar features in CNN also hurt performance. Local region-based validation strongly over-rewards model capacity and does not reliably predict public generalization.
+
+\textbf{More GRU weight tuning plateaued.} Every CNN-GRU blend between 24\% and 27\% produced identical public scores (0.8167). Different GRU seeds and multi-GRU averages did not substantially change the combined result.
+
+\textbf{Direct severity priors were harmful.} The simple mean of recent regional scores was safe at 2\% but worsened public MAE. The mean of old training scores is too different from the calibrated anchor.
+
+\textbf{Validation does not rank near-best candidates.} Temporal backtest correctly rejects very bad candidates but does not distinguish between scores of 0.8145, 0.8150, and 0.8151. The 40-epoch small CNN had a better backtest MAE than the anchor yet substantially worse public MAE. Validation serves as a rejection gate only; public leaderboard feedback remains essential.
+
+\textbf{GroupKFold OOF misleads history/AR-lag models.} The region\_state ordinal model achieved OOF MAE 0.2058 (best in project) but public MAE 0.8121 when blended at 3\% --- worse than the 0.8088 anchor. OOF validates unseen regions; public test uses the same regions at a future horizon. Gate-safe blends with strong OOF can still fail badly on the leaderboard.
+
+\textbf{Probability-space post-hoc blends plateau.} Many gate-safe variants (OOF-cal ordinal, scalar holdout calibration, hybrid\_full ordinal, region\_state AR-lag) worsened public MAE despite favorable offline metrics. Further micro-blends on existing caches are unlikely to reach the 0.8056 target.
+
+% ==========================================
+\section{Current Best Submission}
+
+\textbf{File:} \texttt{output/daily\_candidates/prob\_blend\_recycle8089\_ord08.csv}
+
+\textbf{Public MAE:} 0.8088
+
+The submission is a probability-space blend:
+
+\begin{table}[H]
+\centering
+\caption{Current best construction.}
+\label{tab:best}
+\begin{tabular}{@{}lcl@{}}
+\toprule
+\textbf{Component} & \textbf{Weight} & \textbf{Description} \\
+\midrule
+Soft recycled anchor & 92\% & Mean-preserving soft wrap of 0.8089 prob-best CSV \\
+Hybrid ordinal cache & 8\%  & Cumulative-threshold XGBoost ordinal $\rightarrow$ class probabilities \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Final predictions are the expected value $\mathbb{E}[\text{score}]$ from the blended class probability distribution, clipped to $[0, 5]$. The 7--8\% ordinal weight plateau was confirmed by public scores; 6\% worsens to 0.8090. Gap to course baseline target 0.8056: 0.0032.
+
+% ==========================================
+\section{Difficulties and Future Work}
+
+\subsection{Why Further Improvement Is Difficult}
+
+\textbf{The anchor is well-calibrated.} The current best prediction mean (0.7282) is very close to the recent training label mean (0.7284). Remaining corrections are tiny structural adjustments, not large distribution realignments.
+
+\textbf{Near-best candidates are highly correlated.} The top submissions differ by only 0.002--0.005 average absolute prediction value and have correlations above 0.99996. The leaderboard is optimizing at the noise level of the evaluation metric.
+
+\textbf{Standalone models drift too far.} Ordinal, tree, and history standalone predictions have means around 0.4--1.0 with much lower correlations to the anchor, capping usable blend weights below 2\%. This limits possible improvement from any single new model.
+
+\subsection{Remaining Promising Directions}
+
+\begin{table}[H]
+\centering
+\caption{Promising future directions.}
+\label{tab:future}
+\begin{tabular}{@{}lcl@{}}
+\toprule
+\textbf{Direction} & \textbf{Status} & \textbf{Expected Upside} \\
+\midrule
+Temporal backtest for AR-lag/history models & Not yet built (required)        & unknown until validated \\
+Joint region-history retrain (not post-hoc blend) & Not started                 & needed to close 0.0032 gap \\
+Prob-blend micro-sweeps on current caches & Stopped (plateau at 0.8088)     & unlikely \\
+PatchTST + self-supervised pretraining  & Tested, severe overfit (1.04+)   & stopped \\
+Region-state AR-lag ordinal prob blend  & Tested, 0.8121 at 3\%            & stopped \\
+OOF-cal / scalar holdout calibration    & Tested, LB worse                 & stopped \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{PatchTST and Remaining Gap}
+
+Analysis of the public Kaggle leaderboard shows top teams between 0.7628 and 0.8043, while the current best is 0.8088 (gap to target 0.8056: 0.0032). PatchTST with self-supervised pretraining was implemented but severely overfit (public MAE 1.04+). Further prob-blend micro-sweeps on existing caches have plateaued. Closing the remaining gap likely requires a joint region-history model validated with temporal backtesting, not another post-hoc cache average.
+
+\subsubsection{Architecture}
+
+The PatchTST model adapts the Transformer encoder for multivariate time series forecasting. Given the input shape $(B, 91, 14)$ (the same 91-day window of 14 meteorological features used by the existing CNN), the pipeline proceeds as follows:
+
+\begin{enumerate}
+    \item \textbf{RevIN normalization:} Reversible instance normalization per channel handles distribution shift between training and test time periods.
+    \item \textbf{Patching:} Each of the 14 channels is segmented into 7-day patches with stride 3, yielding 29 patches per channel and 406 tokens total.
+    \item \textbf{Patch embedding:} Each 7-timestep patch is projected to $d_{\text{model}} = 128$ via a shared linear layer.
+    \item \textbf{Positional encoding:} A learnable positional encoding of shape $(1, 406, 128)$ is added.
+    \item \textbf{Transformer encoder:} 3 layers, 8 attention heads, feedforward dimension 256, Pre-LN, GELU activation, dropout 0.2. All 406 tokens undergo cross-channel self-attention, enabling the model to learn feature interactions (e.g., high temperature + low humidity $\rightarrow$ elevated severity).
+    \item \textbf{Prediction head:} Global mean pooling across tokens, followed by LayerNorm $\rightarrow$ Linear(128 $\rightarrow$ 64) $\rightarrow$ GELU $\rightarrow$ Dropout $\rightarrow$ Linear(64 $\rightarrow$ 5).
+\end{enumerate}
+
+\subsubsection{Self-Supervised Pretraining}
+
+A key advantage of the Transformer architecture is the ability to leverage unlabeled data through self-supervised learning. The full training dataset contains 12.3 million meteorological observations, of which only approximately 117,000 fall within labeled 5-week windows. The remaining 99\% of data is unused by supervised models.
+
+Pretraining proceeds via masked patch reconstruction:
+\begin{itemize}
+    \item Approximately 4 million sliding 91-day windows are extracted from all 2,248 regions (stride = 3).
+    \item 40\% of patches are randomly masked and replaced with a learnable \texttt{[MASK]} embedding.
+    \item The model is trained to reconstruct the original 7-timestep values from the masked patches using MSE loss.
+    \item Training runs for 5 epochs with batch size 256, AdamW optimizer (lr = $10^{-4}$, weight decay = 0.01), and OneCycleLR scheduling.
+\end{itemize}
+
+This pretraining teaches the model weather dynamics --- seasonal patterns, feature interactions, and typical evolution trajectories --- without requiring severity labels. The pretrained backbone serves as initialization for downstream fine-tuning.
+
+\subsubsection{Fine-Tuning and Integration}
+
+The pretrained backbone is fine-tuned on the labeled 52-window-per-region dataset (~117K samples). Gradual unfreezing is applied: the backbone is frozen for the first 5 epochs (head-only training), the last Transformer layer is unfrozen for epochs 6--15, and the full model is trained from epoch 16 onward. Training uses L1 loss with AdamW (lr = $5 \times 10^{-5}$), ReduceLROnPlateau scheduling, GroupShuffleSplit validation by region, and early stopping (patience = 8).
+
+Three integration strategies are planned, gated by distribution safety checks:
+\begin{enumerate}
+    \item \textbf{Standalone:} If the PatchTST ensemble passes correlation, mean-difference, and week-shift gates against the current best, it is submitted directly.
+    \item \textbf{Blend:} Weighted blends (5\%, 10\%, 20\%, 30\%) into the current best anchor; the highest safe weight is submitted.
+    \item \textbf{Full-stack:} If standalone performance warrants, the PatchTST anchor is combined with the existing tree, ordinal, and residual corrections for a 4-way ensemble.
+\end{enumerate}
+
+\subsubsection{Expected Impact}
+
+The PatchTST paradigm shift is expected to deliver an improvement of 0.015--0.054 in public MAE, targeting scores in the 0.76--0.79 range. The implementation is incrementally testable: the model uses the same input shape and training infrastructure as the existing CNN, and each stage (compilation, smoke test, pretraining, fine-tuning, gating) can be validated independently before committing to full training.
+
+% ==========================================
+\section{Conclusion}
+This report documents experimental submissions across multiple families for the Data Mining 2026 Final Project. The final public MAE of 0.8088 represents a cumulative improvement of 0.0346 over the XGBoost baseline through: (1) neural sequence models, (2) CNN-GRU blending, (3) ordinal classification and tree corrections, (4) LightGBM and season-tree blending, and (5) probability-space recycled anchor blending. The gap to the course baseline target (0.8056) remains 0.0032.
+
+The most important methodological findings are:
+\begin{itemize}
+    \item Ordinal expected-value modeling in probability space is the strongest late-stage method.
+    \item Anchor recycling (soft-wrap prob-best, re-blend at lower ordinal \%) broke the 0.8112 plateau.
+    \item Distribution safety gates are necessary but insufficient; many gate-safe blends still worsen public MAE.
+    \item GroupKFold OOF is untrustworthy for history/AR-lag models (region\_state: OOF 0.206, public 0.8121).
+    \item Local validation and holdout proxies are rejection gates only, not ranking oracles.
+    \item History features require careful alignment with test-time information horizons (blackout).
+    \item Post-hoc prob-cache blending has plateaued; further gains need joint retraining with temporal validation.
+\end{itemize}
+
+The current best submission is \texttt{prob\_blend\_recycle8089\_ord08.csv}: 92\% soft recycled anchor plus 8\% hybrid ordinal class probabilities. The region\_state AR-lag ordinal branch is stopped after public rejection despite the best OOF MAE in the project.
+
+\end{document}

@@ -1,6 +1,6 @@
 # DM2026 Final Project — Work Progress Summary
 
-**Last updated:** June 5, 2026 (hybrid_full ordinal + recycle2 LB results)  
+**Last updated:** June 9, 2026 (region_state AR-lag ordinal LB result)  
 **Competition:** [data-mining-2026-final-project](https://www.kaggle.com/competitions/data-mining-2026-final-project)  
 **Metric:** MAE (0–5, lower is better)  
 **Team:** Muhammad Rayhan Athaillah (313540001), NYCU Data Mining Spring 2026
@@ -50,6 +50,7 @@
 | **Jun 4** | **Recycle anchor 8% ordinal** | **0.8088** | `prob_blend_recycle8089_ord08.csv` |
 | Jun 5 | hybrid_full ordinal 3% | 0.8109 | Gate safe; LB worse — stop branch |
 | Jun 5 | recycle2 97/3 hybrid ord | 0.8089 | Small regression — stop |
+| **Jun 9** | **region_state AR-lag ordinal 3%** | **0.8121** | Gate safe; OOF MAE 0.206; LB +0.0033 — **stop branch** |
 
 ### Failed / stopped branches (selected)
 
@@ -72,6 +73,7 @@
 | hybrid_full ordinal 3% (`prob_blend_8089_fullord03`) | 0.8109 | Gate safe diff 0.020; LB +0.0021 vs best |
 | hybrid_full recycle (wrap 3% + 2%) | 0.8123 | Gate safe diff 0.025; LB +0.0035 vs best |
 | recycle2 97/3 on 0.8088 anchor | 0.8089 | Gate safe; no improvement |
+| region_state AR-lag ordinal 3% (`prob_blend_recycle8088_region_state_w003`) | 0.8121 | Gate safe diff 0.0205; OOF MAE 0.206; test cache mean 0.38 vs anchor 0.88; blend shifted down; OOF→test disconnect |
 
 ---
 
@@ -385,6 +387,29 @@ Script: `scripts/cache_ordinal_probabilities.py --feature-set hybrid_full` (316 
 
 **Takeaway:** Concatenating season + blackout into a new ordinal cache does **not** help in prob blend (worse than season-only 0.8103 or blackout 0.8135 alone at higher weights). Gate-safe at 3% but **systematically wrong direction** on LB (+0.0021). Second recycle amplifies damage (+0.0035). **Do not** spend more slots on `ordinal_full_hybrid_best` or weight sweeps. To reach **0.8056** (−0.0032): train a **joint** region-history model (hurdle or ordinal with interactions), not post-hoc cache averaging.
 
+### 8.12 region_state AR-lag ordinal (Jun 8–9, submitted)
+
+Codex-recommended slice: history-enhanced ordinal with AR severity lags. New code: `model/region_state_ordinal.py`, `scripts/cache_region_state_probs.py`, `scripts/evaluate_ordinal_ablations.py`, AR lag features in `model/severity_history.py`, `region_state` feature set in `model/ordinal_features.py` (323 dims).
+
+**OOF ablations** (`ordinal_ablations_oof_full.json`):
+
+| Ablation | Feature set | OOF MAE |
+|----------|-------------|--------:|
+| met_season_history_lags | region_state | **0.2058** |
+| met_season_history | hybrid_full | 0.3251 |
+| met_history | hybrid_blackout | 0.3275 |
+| met_only | hybrid | 0.3784 |
+| history_only | history_only | 0.5563 |
+
+AR lags drove most gain. Brier P(score>0): **0.0523**. Standalone corr vs `ordinal_hybrid_best`: **~0.53**.
+
+| File | Blend | Offline gate vs 0.8088 | Public MAE | Decision |
+|------|-------|------------------------|------------|----------|
+| `prob_blend_recycle8088_region_state_w003.csv` | 97% soft(8088) + 3% region_state | safe (corr 0.9995, diff 0.0205, shift 0.017) | **0.8121** | Submitted; **much worse**; stop branch |
+| `prob_blend_recycle8088_region_state_w005.csv` | 95% + 5% | **fail** (week shift 0.028) | — | Not submitted |
+
+**Takeaway:** Strongest offline OOF signal since ordinal breakthrough, but **LB rejected** (+0.0033 vs 0.8088). Test standalone region_state cache mean **0.379** vs anchor **0.884**; w003 blend shifted anchor **down** 0.015. GroupKFold OOF validates unseen regions; public test is same regions, future horizon — AR-lag features dominate OOF but fail on test. **Do not** spend more prob-blend slots on `ordinal_region_state_best` without temporal backtest (train-past → predict-future, same regions).
+
 ### 8.7 Active probability caches
 
 | Cache | Source |
@@ -397,6 +422,7 @@ Script: `scripts/cache_ordinal_probabilities.py --feature-set hybrid_full` (316 
 | `ordinal_season_hybrid_best.npz` | hybrid + same-season ordinal |
 | `ordinal_blackout_hybrid_best.npz` | hybrid + blackout history (prob branch stopped @ 0.8135) |
 | `ordinal_full_hybrid_best.npz` | hybrid + season + blackout (prob branch stopped @ 0.8109/0.8123) |
+| `ordinal_region_state_best.npz` | hybrid + season + blackout + AR lags (prob branch stopped @ 0.8121) |
 | `mae_lgbm_hybrid_oofcal_best.npz` | LGBM MAE + OOF residual bins (prob branch stopped @ 0.8098) |
 | `soft_season_scalar_best.npz` | soft wrap of `season_w20_w20_20260530_122421.csv` (substitution stopped @ tie) |
 | `ordinal_history_only_best.npz` | history-only ordinal (substitution stopped @ 0.8118) |
@@ -414,12 +440,12 @@ PYTHONPATH=. python scripts/blend_prob_submissions.py \
 
 ## 9. Next steps (prioritized)
 
-**Stopped (gated-safe but LB failed or tie):** season ord 0.8103, blackout ord 0.8135, **hybrid_full ord 0.8109/0.8123**, recycle2 **0.8089**, MAE-tree prob 0.8098, substitutions (tie/0.8118), history residual tie, MAE quantile **0.9206**, OOF-cal ordinal **0.8091**, scalar holdout cal **0.8112**.
+**Stopped (gated-safe but LB failed or tie):** season ord 0.8103, blackout ord 0.8135, **hybrid_full ord 0.8109/0.8123**, **region_state ord 0.8121**, recycle2 **0.8089**, MAE-tree prob 0.8098, substitutions (tie/0.8118), history residual tie, MAE quantile **0.9206**, OOF-cal ordinal **0.8091**, scalar holdout cal **0.8112**.
 
 1. **Hold** `prob_blend_recycle8089_ord08.csv` @ **0.8088** — default Kaggle submission.
 2. **Preserve submission slots** — no more prob-blend micro-sweeps, calibrations, substitutions, or decoder variants on current caches without a **new model family** or paradigm shift.
-3. **Report/thesis** — document plateau: gate + OOF/holdout proxy do not predict LB near 0.8088.
-4. Optional (only if resuming competition): train a structurally different model (not another 8% blend tweak); require **temporal holdout + segmented** checks before any slot.
+3. **Report/thesis** — document plateau: gate + OOF/holdout proxy do not predict LB near 0.8088; GroupKFold OOF especially untrustworthy for AR-lag/history models.
+4. Optional (only if resuming competition): require **temporal backtest** (same regions, train-past → predict-future) before any history/AR-lag submission; do not trust raw OOF MAE for blend weight selection.
 
 **Reproduce current best:**
 ```bash

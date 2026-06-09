@@ -130,7 +130,32 @@ Soft anchor = mean-preserving wrap of prior best CSV + `ordinal_hybrid_best.npz`
 
 **Stopped (Jun 5):** `hybrid_full` ordinal (weather+season+blackout concat) in prob space — gate-safe at 3% but LB +0.0021; second recycle +0.0035. Same failure mode as season/blackout ordinal substitutes. **Gap to target 0.8056:** 0.0032; needs new model family (region-state/hurdle/joint retrain), not more cache blends.
 
-**Active caches:** `soft_lgbm_best.npz`, `soft_prob_best8092.npz`, `soft_prob_best8089.npz`, `soft_prob_best8088.npz`, `ordinal_hybrid_best.npz`, `ordinal_full_hybrid_best.npz` (fullord branch stopped), `ordinal_season_hybrid_best.npz`, `ordinal_blackout_hybrid_best.npz` (stopped).
+### Prob blend — June 8–9 (region_state AR-lag ordinal)
+
+Codex-recommended slice: history-enhanced ordinal with AR severity lags (`region_state` = hybrid + season + blackout history + 4 AR lags, 323 features). Scripts: `model/region_state_ordinal.py`, `scripts/cache_region_state_probs.py`, `scripts/evaluate_ordinal_ablations.py`.
+
+**OOF ablations** (`ordinal_ablations_oof_full.json`, GroupKFold-5 by region):
+
+| Ablation | Feature set | OOF MAE |
+|----------|-------------|--------:|
+| met_season_history_lags | region_state | **0.2058** |
+| met_season_history | hybrid_full | 0.3251 |
+| met_history | hybrid_blackout | 0.3275 |
+| met_only | hybrid | 0.3784 |
+| history_only | history_only | 0.5563 |
+
+AR lags drove most gain (0.325 → 0.206). Brier P(score>0) best: **0.0523**. Standalone cache corr vs `ordinal_hybrid_best.npz`: **~0.53** (new signal). **Caution:** OOF uses unseen regions; public test is same regions, future horizon — OOF MAE over-rewards AR-lag models.
+
+| File | Blend | Offline gate vs 0.8088 | Public MAE | Decision |
+|------|-------|------------------------|------------|----------|
+| `prob_blend_recycle8088_region_state_w003.csv` | 97% soft(8088) + 3% region_state ord | safe (corr 0.9995, diff 0.0205, shift 0.017) | **0.8121** | **Submitted; much worse (+0.0033)**; stop region_state prob branch |
+| `prob_blend_recycle8088_region_state_w005.csv` | 95% + 5% | **gate fail** (week shift 0.028) | — | Not submitted |
+
+**Failure analysis (Jun 9):** Gate-safe blend shifted anchor **down** (~0.015 global mean). Test standalone means: anchor 0.884, region_state cache 0.379, hybrid ordinal 1.009, w003 blend 0.868. OOF pred mean ~0.726 (well-calibrated on train folds) but full-train test predictions mean ~0.38 — severe OOF→test disconnect. Same pattern as `hybrid_full` (0.8109): strong OOF + gate-safe blend → LB worse.
+
+**Stopped (Jun 9):** `region_state` AR-lag ordinal prob blends. Do not spend more slots without **temporal backtest** (train-past → predict-future, same regions). Raw GroupKFold OOF is untrustworthy for history/AR-lag blend decisions.
+
+**Active caches:** `soft_lgbm_best.npz`, `soft_prob_best8092.npz`, `soft_prob_best8089.npz`, `soft_prob_best8088.npz`, `ordinal_hybrid_best.npz`, `ordinal_full_hybrid_best.npz` (fullord branch stopped), `ordinal_season_hybrid_best.npz`, `ordinal_blackout_hybrid_best.npz` (stopped), `ordinal_region_state_best.npz` (prob branch stopped @ 0.8121).
 
 **Reproduce current best:**
 ```bash

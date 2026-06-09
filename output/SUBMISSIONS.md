@@ -28,3 +28,4 @@
 | prob_blend_8089_fullord03.csv | Jun 5 | — | 0.8109 | hybrid_full prob | 97% soft8089 + 3% hybrid_full ordinal | Gate safe diff 0.020; **worse than 0.8088**; stop hybrid_full branch |
 | prob_blend_recycle2_8088_w0.97.csv | Jun 5 | — | 0.8089 | recycle2 | 97% soft(8088) + 3% hybrid ord | Small regression; stop recycle2 |
 | prob_blend_recycle8089_ord08.csv | Jun 5 | 5beb7e62 | **0.8088** | prob recycle | 92% soft8089 + 8% hybrid ord | Re-submit; still best |
+| prob_blend_recycle8088_region_state_w003.csv | Jun 9 | d8764f5d | 0.8121 | region_state ordinal prob | 97% soft(8088) + 3% AR-lag region_state ord | Gate safe diff=0.0205; OOF MAE 0.206; **worse than 0.8088**; stop region_state branch |
